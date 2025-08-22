@@ -1,0 +1,11 @@
+*{
+    margin: 0px;
+    box-sizing: border-box;
+    padding: 0px;
+}
+.img-capa-maior{
+    width: 300px;
+}
+.img-thumb{
+    width: 36px;
+}
