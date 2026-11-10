@@ -1,16 +1,27 @@
 # Cortador automático – GTA 6
 
-Você passa o link do perfil e o script "assiste" às lives e aos vídeos do canal. Ele encontra os momentos de **maior engajamento** e gera cortes prontos para postar (16:9 ou 9:16 para Shorts, TikTok e Reels).
+Você passa o link do perfil no **YouTube, Twitch ou Kick** e o script "assiste" às lives e aos vídeos do canal. Ele encontra os momentos de **maior engajamento** e gera cortes prontos para postar (16:9 ou 9:16 para Shorts, TikTok e Reels).
 
 ## Como ele decide o que é um bom corte
 
 | Sinal | Peso | O que mede |
 |---|---|---|
 | **"Mais repetidos" do YouTube** (heatmap) | 50% | Trechos que o público mais reassistiu. É o melhor indicador de audiência. |
-| **Chat da live** (replay) | 35% | Explosões de mensagens. "KKKK", "CLIP", "MDS", 🔥, 😂 e superchat pesam mais. |
+| **Clipes da comunidade** (Twitch e Kick) | 45% | Momentos que os próprios espectadores clipparam, com peso pelas views. |
+| **Chat da live** (YouTube, Twitch e Kick) | 35% | Explosões de mensagens. "KKKK", "CLIP", "MDS", 🔥, 😂 e superchat pesam mais. |
 | **Volume do áudio** | 15% | Gritos e reações do streamer acima do volume normal. |
 
-Quando um sinal não existe (vídeo novo sem heatmap, Twitch sem chat), os pesos dos outros sinais são redistribuídos. O pico do momento fica a cerca de 65% do corte, então há contexto antes e reação depois.
+### O que cada plataforma oferece
+
+| | YouTube | Twitch | Kick |
+|---|---|---|---|
+| Lista as lives do perfil | ✅ (aba Ao vivo + Vídeos) | ✅ (transmissões passadas) | ✅ (aba Vídeos) |
+| Heatmap "Mais repetidos" | ✅ | – | – |
+| Chat replay | ✅ | ✅ | ✅ (em picos muito fortes, algumas mensagens se perdem) |
+| Clipes da comunidade | – | ✅ | ✅ (minuto estimado pelo horário do clipe) |
+| Áudio | ✅ | ✅ | ✅ |
+
+Quando um sinal não existe ou a plataforma bloqueia o acesso, os pesos dos outros sinais são redistribuídos e o corte continua. O pico do momento fica a cerca de 65% do corte, então há contexto antes e reação depois.
 
 Para economizar internet, ele baixa **só o áudio e o chat** para analisar e, depois, **só os trechos escolhidos** em vídeo. Uma live de 4h não é baixada inteira.
 
@@ -37,8 +48,11 @@ python cortador.py "https://www.youtube.com/@CANAL" --filtro "gta ?(6|vi)" --cor
 # um vídeo ou live específico
 python cortador.py "https://www.youtube.com/watch?v=XXXX" --vertical
 
-# Twitch (VODs)
-python cortador.py "https://www.twitch.tv/CANAL/videos" --max-videos 2
+# Twitch: o link do perfil já basta (pega as transmissões passadas)
+python cortador.py "https://www.twitch.tv/CANAL" --filtro "gta" --vertical
+
+# Kick
+python cortador.py "https://kick.com/CANAL" --filtro "gta" --vertical
 
 # vídeo que você já tem no PC
 python cortador.py --arquivo live.mp4 --chat live.live_chat.json
@@ -64,5 +78,7 @@ O arquivo `saida/processados.json` guarda o que já foi cortado. Se você rodar 
 ## Dicas para gerar audiência
 
 - Assista aos 2 ou 3 primeiros cortes antes de postar. A nota alta indica que o momento teve reação, mas o gancho do título é você quem escolhe.
+- A Twitch apaga os VODs depois de 7 a 60 dias, dependendo do canal. Rode o script com frequência para não perder lives.
+- A Kick usa proteção Cloudflare. Por isso o `curl_cffi` faz parte das dependências: ele imita um navegador.
 - Use o `link_momento` do relatório para conferir rapidamente o contexto no vídeo original.
 - **Direitos autorais:** cortar a live de outro criador sem autorização pode gerar strike ou reivindicação. O ideal é ter a permissão do streamer (muitos têm programa oficial de cortes) ou usar o seu próprio conteúdo.

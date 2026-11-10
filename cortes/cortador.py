@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Cortador automático de lives/vídeos (feito pensando em GTA 6, mas serve pra qualquer jogo).
+Cortador automático de lives/vídeos do YouTube, Twitch e Kick (feito pensando em GTA 6).
 
 Fluxo:
-  1. Lê o perfil/canal (YouTube, Twitch VOD, Kick... tudo que o yt-dlp suporta).
-  2. Para cada vídeo/live novo: baixa só o ÁUDIO (leve) + chat replay + "mais repetidos".
+  1. Lê o perfil/canal (youtube.com/@x, twitch.tv/x, kick.com/x ou link de um vídeo).
+  2. Para cada vídeo/live novo: baixa só o ÁUDIO (leve) + chat replay + clipes da comunidade.
   3. Calcula uma nota de engajamento por segundo combinando:
        - heatmap "Mais repetidos" do YouTube (o que o público mais reassistiu)
+       - clipes que os espectadores criaram na Twitch/Kick (pesados pelas views)
        - picos de mensagens no chat da live (+ peso extra para "KKKK", "CLIP", "MDS"...)
        - picos de volume/grito do streamer
   4. Escolhe os N melhores trechos sem sobreposição.
@@ -28,6 +29,8 @@ import sys
 from pathlib import Path
 
 import numpy as np
+
+from plataformas import chat_youtube, coletar_extras, urls_do_perfil
 
 PALAVRAS_HYPE = re.compile(
     r"(k{3,}|(rs){2,}|ha(ha)+|lol|lmao|clip|corta|cortem|mds|meu deus|caraca|caralho|"
@@ -59,12 +62,9 @@ def suavizar(x: np.ndarray, janela: int) -> np.ndarray:
 
 
 def normalizar(x: np.ndarray) -> np.ndarray:
-    if len(x) == 0:
-        return x
-    ref = np.percentile(x, 99)
-    if ref <= 0:
-        ref = x.max()
-    return np.clip(x / ref, 0, 1) if ref > 0 else np.zeros_like(x)
+    """Escala 0..1 mantendo a ordem dos picos (o maior momento continua sendo o maior)."""
+    m = x.max() if len(x) else 0
+    return x / m if m > 0 else np.zeros_like(x)
 
 
 # ------------------------------------------------------------------------ sinais
@@ -105,40 +105,29 @@ def sinal_heatmap(info: dict, duracao: int) -> np.ndarray | None:
     return normalizar(s)
 
 
-def sinal_chat(arquivo: Path, duracao: int, atraso: int) -> np.ndarray | None:
-    """Mensagens por segundo do chat replay (formato .live_chat.json do yt-dlp)."""
-    if not arquivo or not arquivo.exists():
+def sinal_chat(msgs: list, duracao: int, atraso: int) -> np.ndarray | None:
+    """Mensagens por segundo no chat; risadas/hype/superchat pesam mais."""
+    if not msgs:
         return None
     s = np.zeros(duracao)
-    with open(arquivo, encoding="utf-8") as f:
-        for linha in f:
-            try:
-                item = json.loads(linha)
-            except json.JSONDecodeError:
-                continue
-            replay = item.get("replayChatItemAction", {})
-            ms = replay.get("videoOffsetTimeMsec")
-            if ms is None:
-                continue
-            t = int(int(ms) / 1000) - atraso  # o chat reage alguns segundos depois
-            if not 0 <= t < duracao:
-                continue
-            for acao in replay.get("actions", []):
-                r = acao.get("addChatItemAction", {}).get("item", {})
-                msg = r.get("liveChatTextMessageRenderer") or r.get("liveChatPaidMessageRenderer")
-                if not msg:
-                    continue
-                texto = "".join(
-                    run.get("text", "") or run.get("emoji", {}).get("shortcuts", [""])[0]
-                    for run in msg.get("message", {}).get("runs", [])
-                )
-                peso = 1.0 + (1.5 if PALAVRAS_HYPE.search(texto) else 0)
-                if "liveChatPaidMessageRenderer" in r:
-                    peso += 3  # superchat
-                s[t] += peso
+    for t, texto, extra in msgs:
+        t = int(t) - atraso  # o chat reage alguns segundos depois do momento
+        if 0 <= t < duracao:
+            s[t] += 1.0 + (1.5 if PALAVRAS_HYPE.search(texto or "") else 0) + extra
     if s.sum() == 0:
         return None
     return normalizar(suavizar(s, 8))
+
+
+def sinal_clipes(clipes: list, duracao: int) -> np.ndarray | None:
+    """Trechos que os próprios espectadores clipparam (Twitch/Kick), pesados pelas views."""
+    if not clipes:
+        return None
+    s = np.zeros(duracao)
+    for inicio, dur, views in clipes:
+        a = max(0, int(inicio))
+        s[a:min(duracao, int(inicio + dur))] += 1 + np.log1p(views)
+    return normalizar(s) if s.any() else None
 
 
 # --------------------------------------------------------------------- seleção
@@ -234,10 +223,7 @@ def ydl(opts: dict):
 
 
 def listar_videos(perfil: str, limite: int, filtro: str | None) -> list[dict]:
-    perfil = perfil.rstrip("/")
-    urls = [perfil]
-    if re.search(r"youtube\.com/(@|c/|channel/|user/)", perfil) and not re.search(r"/(videos|streams|shorts)$", perfil):
-        urls = [perfil + "/streams", perfil + "/videos"]  # lives primeiro
+    urls = urls_do_perfil(perfil)
     vistos, videos = set(), []
     for url in urls:
         try:
@@ -287,6 +273,15 @@ def baixar_trecho(url: str, inicio: float, fim: float, destino: Path) -> Path:
     return next(p for p in destino.parent.glob(destino.stem + ".*") if p.suffix in (".mp4", ".mkv", ".webm"))
 
 
+def link_momento(info: dict, url: str, seg: int) -> str:
+    pagina = info.get("webpage_url") or url
+    if "youtu" in pagina:
+        return f"https://youtu.be/{info.get('id')}?t={seg}"
+    if "twitch.tv" in pagina:
+        return f"{pagina}?t={seg // 3600}h{seg % 3600 // 60}m{seg % 60}s"
+    return f"{pagina} (pular para {hms(seg)})"
+
+
 # ------------------------------------------------------------------ principal
 def processar(args, pasta: Path, titulo: str, info: dict, audio: Path, chat: Path | None,
               video_local: Path | None, url: str | None) -> dict:
@@ -296,14 +291,20 @@ def processar(args, pasta: Path, titulo: str, info: dict, audio: Path, chat: Pat
             ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(audio)]
         ).strip()))
     log(f"  duração {hms(duracao)} — analisando sinais…")
+    if url:
+        msgs, clipes = coletar_extras(url, info, duracao, chat, log)
+    else:
+        msgs, clipes = (chat_youtube(chat) if chat else []), []
     sinais = {
         "heatmap": sinal_heatmap(info, duracao),
-        "chat": sinal_chat(chat, duracao, args.atraso_chat) if chat else None,
+        "clipes": sinal_clipes(clipes, duracao),
+        "chat": sinal_chat(msgs, duracao, args.atraso_chat),
         "audio": sinal_audio(audio, duracao),
     }
     usados = [k for k, v in sinais.items() if v is not None]
     log(f"  sinais usados: {', '.join(usados)}")
-    nota = calcular_nota(sinais, {"heatmap": 0.5, "chat": 0.35, "audio": 0.15}, max(5, args.duracao // 3))
+    pesos = {"heatmap": 0.5, "clipes": 0.45, "chat": 0.35, "audio": 0.15}
+    nota = calcular_nota(sinais, pesos, max(5, args.duracao // 3))
     trechos = escolher_trechos(nota, args.cortes, args.duracao, args.ignorar_inicio)
 
     for i, t in enumerate(trechos, 1):
@@ -316,8 +317,8 @@ def processar(args, pasta: Path, titulo: str, info: dict, audio: Path, chat: Pat
             renderizar(bruto, 0, t["fim"] - t["inicio"], destino, args.vertical, args.legenda)
             bruto.unlink(missing_ok=True)
         t["arquivo"] = destino.name
-        if url and "youtu" in url:
-            t["link_momento"] = f"https://youtu.be/{info.get('id')}?t={t['inicio']}"
+        if url:
+            t["link_momento"] = link_momento(info, url, t["inicio"])
 
     relatorio = {"titulo": titulo, "url": url, "duracao": duracao, "sinais": usados, "cortes": trechos}
     (pasta / "relatorio.json").write_text(json.dumps(relatorio, indent=2, ensure_ascii=False), encoding="utf-8")
