@@ -45,7 +45,15 @@ def transcrever(clip: Path, modelo: str = "small") -> list[tuple[float, float, s
     pcm = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(clip), "-vn", "-ac", "1",
                           "-ar", "16000", "-f", "f32le", "-"], capture_output=True, check=True).stdout
     audio = np.frombuffer(pcm, dtype=np.float32)
-    segs, _ = _modelo_whisper.transcribe(audio, language="pt", word_timestamps=True, vad_filter=True)
+    try:
+        segs, _ = _modelo_whisper.transcribe(audio, language="pt", word_timestamps=True, vad_filter=True)
+        segs = list(segs)  # a GPU só falha aqui, ao rodar de fato
+    except RuntimeError as e:
+        if not re.search(r"cublas|cudnn|cuda", str(e), re.IGNORECASE):
+            raise
+        print("   (GPU sem bibliotecas CUDA; usando o processador para a legenda)")
+        _modelo_whisper = WhisperModel(modelo, device="cpu", compute_type="int8")
+        segs, _ = _modelo_whisper.transcribe(audio, language="pt", word_timestamps=True, vad_filter=True)
     return [(w.start, w.end, w.word.strip()) for s in segs for w in (s.words or []) if w.word.strip()]
 
 

@@ -172,7 +172,7 @@ def renderizar(origem: Path, inicio: float, dur: float, destino: Path, args, pic
         log(f"   aviso: transcrição falhou ({e}); seguindo sem legenda")
         palavras = []
     if precisa_texto and not palavras:
-        log("   (sem transcrição: instale faster-whisper para legenda/gancho automático)")
+        log("   (sem fala detectada neste trecho: corte sai sem legenda/gancho)")
     gancho = edicao.gancho_automatico(palavras, pico_rel) if args.gancho == "auto" else (
         "" if args.gancho == "nenhum" else args.gancho.upper())
     lay = edicao.detectar_layout(bruto) if args.layout == "auto" else {"tipo": args.layout, **dict(
