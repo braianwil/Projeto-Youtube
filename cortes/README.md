@@ -72,7 +72,7 @@ python cortador.py "https://kick.com/CANAL" --filtro "gta" --vertical
 python cortador.py --arquivo live.mp4 --chat live.live_chat.json
 ```
 
-Os resultados ficam em `saida/<id> <título>/`:
+Os resultados ficam em `saida/<data>/<canal>/<id> <título>/`, por exemplo `saida/2026-11-10/DavyJonesGTA6/AmlLv3M5ggE ROCKSTAR REVEALS…/`:
 - `corte_01.mp4`, `corte_02.mp4`… em ordem do melhor para o pior
 - `relatorio.json` com a nota, o horário e o link direto para cada momento no vídeo original
 

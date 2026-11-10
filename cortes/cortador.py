@@ -22,6 +22,7 @@ Uso rápido:
 from __future__ import annotations
 
 import argparse
+from datetime import date
 import json
 import re
 import shutil
@@ -215,6 +216,15 @@ def ydl(opts: dict):
     return yt_dlp.YoutubeDL(base)
 
 
+def nome_do_perfil(url: str) -> str:
+    m = re.search(r"(?:youtube\.com/@|twitch\.tv/|kick\.com/)([\w.-]+)", url)
+    return m.group(1) if m and m.group(1) != "videos" else "canal"
+
+
+def nome_pasta(txt: str, limite: int = 80) -> str:
+    return re.sub(r"[^\w\- ]", "", txt or "")[:limite].strip() or "sem-nome"
+
+
 def listar_videos(perfil: str, limite: int, filtro: str | None) -> list[dict]:
     urls = urls_do_perfil(perfil)
     vistos, videos = set(), []
@@ -234,7 +244,10 @@ def listar_videos(perfil: str, limite: int, filtro: str | None) -> list[dict]:
             if e.get("live_status") in ("is_live", "is_upcoming"):
                 continue  # live ainda rolando: processa quando virar VOD
             vistos.add(e["id"])
-            videos.append({"id": e["id"], "url": e.get("url") or e.get("webpage_url"), "titulo": e.get("title")})
+            canal = (e.get("channel") or e.get("uploader") or info.get("channel") or info.get("uploader")
+                     or nome_do_perfil(perfil))
+            videos.append({"id": e["id"], "url": e.get("url") or e.get("webpage_url"), "titulo": e.get("title"),
+                           "canal": canal})
     return videos[:limite]
 
 
@@ -361,7 +374,7 @@ def main():
     args.saida.mkdir(parents=True, exist_ok=True)
 
     if args.arquivo:
-        pasta = args.saida / args.arquivo.stem
+        pasta = args.saida / date.today().isoformat() / "arquivos-locais" / nome_pasta(args.arquivo.stem)
         pasta.mkdir(parents=True, exist_ok=True)
         log(f"▶ {args.arquivo.name}")
         rel = processar(args, pasta, args.arquivo.stem, {}, args.arquivo, args.chat, args.arquivo, None)
@@ -383,7 +396,9 @@ def main():
 
     for v in novos:
         log(f"\n▶ {v['titulo']}")
-        pasta = args.saida / re.sub(r"[^\w\- ]", "", f"{v['id']} {v['titulo'] or ''}")[:80].strip()
+        # saida/<data>/<canal>/<vídeo>/
+        pasta = (args.saida / date.today().isoformat() / nome_pasta(v["canal"], 40)
+                 / nome_pasta(f"{v['id']} {v['titulo'] or ''}"))
         pasta.mkdir(parents=True, exist_ok=True)
         try:
             info, audio, chat = baixar_analise(v["url"], pasta)
