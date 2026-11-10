@@ -17,8 +17,8 @@ _modelo_whisper = None
 
 
 # --------------------------------------------------------------- bordas
-def ajustar_bordas(inicio: float, fim: float, db_fino: np.ndarray, antes: float = 6, depois: float = 6):
-    """Move início/fim para a pausa mais silenciosa próxima (db_fino = volume a cada 0,1s)."""
+def ajustar_bordas(inicio: float, fim: float, db_fino: np.ndarray, dmin: float, dmax: float, antes: float = 6):
+    """Move início/fim para a pausa mais próxima, respeitando a duração mín/máx da plataforma."""
     def pausa(a: float, b: float, padrao: float) -> float:
         i, j = max(0, int(a * 10)), min(len(db_fino), int(b * 10))
         if j - i < 3:
@@ -26,9 +26,13 @@ def ajustar_bordas(inicio: float, fim: float, db_fino: np.ndarray, antes: float 
         janela = np.convolve(db_fino[i:j], np.ones(3) / 3, mode="same")  # pausa de ~0,3s
         return (i + int(np.argmin(janela))) / 10
 
-    novo_inicio = pausa(inicio - antes, inicio + 2, inicio)
-    novo_fim = pausa(fim - 2, fim + depois, fim)
-    return round(novo_inicio, 1), round(max(novo_fim, novo_inicio + 5), 1)
+    novo_inicio = max(0.0, pausa(inicio - antes, inicio + 2, inicio))
+    alvo = fim - inicio
+    a = novo_inicio + max(dmin, alvo - 4)
+    b = novo_inicio + min(dmax, max(alvo + 4, dmin + 1))
+    novo_fim = pausa(a, b, novo_inicio + min(max(alvo, dmin), dmax))
+    novo_fim = min(max(novo_fim, novo_inicio + dmin), novo_inicio + dmax)
+    return round(novo_inicio, 1), round(novo_fim, 1)
 
 
 # --------------------------------------------------------------- transcrição
@@ -57,13 +61,25 @@ def transcrever(clip: Path, modelo: str = "small") -> list[tuple[float, float, s
     return [(w.start, w.end, w.word.strip()) for s in segs for w in (s.words or []) if w.word.strip()]
 
 
-def gancho_automatico(palavras, pico: float) -> str:
-    """Frase dita no momento do pico (o que o streamer gritou/falou na hora H)."""
-    perto = [w for a, b, w in palavras if pico - 3.5 <= a <= pico + 1.5]
-    if len(perto) < 2:  # pega a frase mais próxima do pico
-        perto = [w for a, b, w in palavras if abs(a - pico) <= 6]
-    perto = perto[-7:]
-    texto = re.sub(r"[^\w\sÀ-ÿ!?]", "", " ".join(perto)).strip().upper()
+def gancho_automatico(palavras, pico: float, maximo: int = 8) -> str:
+    """Frase completa dita no pico: começa e termina em pausa/pontuação (não corta no meio)."""
+    if not palavras:
+        return ""
+    i = min(range(len(palavras)), key=lambda k: abs(palavras[k][0] - (pico - 1)))
+
+    def fim_de_frase(k):  # palavra k encerra a frase?
+        return (re.search(r"[.!?]$", palavras[k][2]) or k + 1 >= len(palavras)
+                or palavras[k + 1][0] - palavras[k][1] > 0.5)
+
+    a = i
+    while a > 0 and not fim_de_frase(a - 1) and i - a < maximo - 1:
+        a -= 1
+    b = i
+    while not fim_de_frase(b) and b - a < maximo - 1:
+        b += 1
+    if not fim_de_frase(b):  # frase longa demais: termina na última pausa possível
+        return ""
+    texto = re.sub(r"[^\w\sÀ-ÿ!?]", "", " ".join(w for _, _, w in palavras[a:b + 1])).strip().upper()
     return f"“{texto}”" if len(texto.split()) >= 2 else ""
 
 
@@ -158,7 +174,7 @@ def _limpar(txt: str) -> str:
 
 def gerar_ass(destino: Path, palavras, gancho: str, vertical: bool, layout: str) -> None:
     rx, ry = (1080, 1920) if vertical else (1920, 1080)
-    tam_leg, tam_gancho = (80, 66) if vertical else (64, 56)
+    tam_leg, tam_gancho = (74, 66) if vertical else (64, 56)
     margem_leg = {"blur": 470, "facecam": 360, "rosto": 420}.get(layout, 420) if vertical else 80
     cab = f"""[Script Info]
 ScriptType: v4.00+
@@ -180,21 +196,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     # agrupa até 3 palavras; quebra em pausa > 0,6s ou pontuação
     grupos, atual = [], []
     for p in palavras:
-        if atual and (len(atual) == 3 or p[0] - atual[-1][1] > 0.6 or re.search(r"[.!?]$", atual[-1][2])):
+        letras = sum(len(w) + 1 for _, _, w in atual) + len(p[2])
+        if atual and (len(atual) == 3 or letras > 18 or p[0] - atual[-1][1] > 0.6
+                      or re.search(r"[.!?]$", atual[-1][2])):
             grupos.append(atual)
             atual = []
         atual.append(p)
     if atual:
         grupos.append(atual)
+    legs = []
     for g in grupos:
         for k, (a, b, _) in enumerate(g):
             fim = g[k + 1][0] if k + 1 < len(g) else b + 0.15
-            partes = []
-            for m, (_, _, w) in enumerate(g):
-                w = _limpar(w).upper()
-                if m == k:  # palavra falada agora: amarela e com "pulo"
-                    w = (r"{\c&H00FFFF&\fscx90\fscy90\t(0,90,\fscx118\fscy118)\t(90,160,\fscx110\fscy110)}"
-                         + w + r"{\r}")
-                partes.append(w)
-            ev.append(f"Dialogue: 0,{_t(a)},{_t(fim)},Leg,,0,0,0,,{' '.join(partes)}")
+            partes = [(r"{\c&H00FFFF&}" + _limpar(w).upper() + r"{\r}") if m == k else _limpar(w).upper()
+                      for m, (_, _, w) in enumerate(g)]  # palavra falada agora em amarelo
+            legs.append([a, fim, " ".join(partes)])
+    legs.sort(key=lambda x: x[0])
+    for n, (a, fim, txt) in enumerate(legs):  # nunca duas legendas ao mesmo tempo
+        if n + 1 < len(legs):
+            fim = min(fim, legs[n + 1][0])
+        if fim - a >= 0.04:
+            ev.append(f"Dialogue: 0,{_t(a)},{_t(fim)},Leg,,0,0,0,,{txt}")
     destino.write_text(cab + "\n".join(ev) + "\n", encoding="utf-8")

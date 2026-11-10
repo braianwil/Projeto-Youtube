@@ -82,12 +82,23 @@ O arquivo `saida/processados.json` guarda o que já foi cortado. Se você rodar 
 
 | Opção | Padrão | Descrição |
 |---|---|---|
+| `--plataforma` | shorts | Define a duração: `shorts` 30–59s, `tiktok` 61–90s, `reels` 30–90s |
 | `--cortes N` | 5 | Cortes por vídeo |
-| `--duracao S` | 45 | Segundos por corte (use até 60 para Shorts) |
+| `--duracao S` | – | Duração alvo manual (sobrepõe a da plataforma) |
 | `--max-videos N` | 3 | Quantos vídeos novos processar por execução |
 | `--atraso-chat S` | 6 | Quanto tempo o chat leva para reagir ao momento |
 | `--ignorar-inicio S` | 60 | Pula a tela de "começando já já" |
 | `--reprocessar` | – | Corta de novo vídeos que já estão no histórico |
+
+### Duração por plataforma
+
+| Plataforma | Duração | Motivo |
+|---|---|---|
+| YouTube Shorts | 30–59s | Acima de 1 minuto, um Short com reivindicação de direitos autorais fica bloqueado. |
+| TikTok | 61–90s | O Programa de Recompensas para Criadores só paga vídeos com mais de 1 minuto. |
+| Instagram Reels | 30–90s | Faixa com melhor alcance. |
+
+O início e o fim do corte sempre caem numa pausa da fala, dentro desses limites.
 
 ## Dicas para gerar audiência
 

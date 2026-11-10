@@ -42,6 +42,14 @@ PALAVRAS_HYPE = re.compile(
 
 
 # ----------------------------------------------------------------------------- util
+# (mínimo, alvo, máximo) em segundos
+PLATAFORMAS = {
+    "shorts": (30, 50, 59),   # >60s com reivindicação de direitos = Short bloqueado
+    "tiktok": (61, 70, 90),   # Programa de Recompensas só paga vídeos com mais de 1 min
+    "reels": (30, 60, 90),
+}
+
+
 def log(msg: str) -> None:
     print(msg, flush=True)
 
@@ -188,6 +196,7 @@ def renderizar(origem: Path, inicio: float, dur: float, destino: Path, args, pic
            "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-c:a", "aac", "-b:a", "160k",
            "-movflags", "+faststart", destino.name, cwd=destino.parent)
     bruto.unlink(missing_ok=True)
+    destino.with_suffix(".ass").unlink(missing_ok=True)
     return {"layout": lay["tipo"], "gancho": gancho,
             "fala": " ".join(w for _, _, w in palavras)[:500] if palavras else ""}
 
@@ -294,7 +303,8 @@ def processar(args, pasta: Path, titulo: str, info: dict, audio: Path, chat: Pat
     trechos = escolher_trechos(nota, args.cortes, args.duracao, args.ignorar_inicio)
 
     for i, t in enumerate(trechos, 1):
-        t["inicio"], t["fim"] = edicao.ajustar_bordas(t["inicio"], t["fim"], db_fino)  # cortar na pausa
+        t["inicio"], t["fim"] = edicao.ajustar_bordas(
+            t["inicio"], t["fim"], db_fino, args.dmin, args.dmax)  # cortar na pausa
         t["nota"] = int(round(t["nota"] * 100))  # 0–100, como no Autoclipper
         dur, pico_rel = t["fim"] - t["inicio"], t["pico"] - t["inicio"]
         destino = pasta / f"corte_{i:02d}.mp4"
@@ -326,7 +336,9 @@ def main():
     ap.add_argument("--filtro", default=None, help='regex no título, ex: "gta ?(6|vi)"')
     ap.add_argument("--max-videos", type=int, default=3)
     ap.add_argument("--cortes", type=int, default=5, help="cortes por vídeo")
-    ap.add_argument("--duracao", type=int, default=45, help="segundos por corte")
+    ap.add_argument("--plataforma", default="shorts", choices=list(PLATAFORMAS),
+                    help="define a duração: shorts 30–59s | tiktok 61–90s (monetiza) | reels 30–90s")
+    ap.add_argument("--duracao", type=int, default=None, help="duração alvo em segundos (sobrepõe a plataforma)")
     ap.add_argument("--vertical", action="store_true", help="9:16 para Shorts/TikTok/Reels")
     ap.add_argument("--legenda", action="store_true", help="legenda animada palavra por palavra (faster-whisper)")
     ap.add_argument("--gancho", default="auto",
@@ -340,6 +352,9 @@ def main():
     ap.add_argument("--reprocessar", action="store_true", help="ignora o histórico de vídeos já cortados")
     ap.add_argument("--manter-audio", action="store_true")
     args = ap.parse_args()
+    args.dmin, alvo, args.dmax = PLATAFORMAS[args.plataforma]
+    args.duracao = args.duracao or alvo
+    args.dmin, args.dmax = min(args.dmin, args.duracao), max(args.dmax, args.duracao)
 
     if not shutil.which("ffmpeg"):
         sys.exit("ffmpeg não encontrado. Instale: https://ffmpeg.org/download.html")
