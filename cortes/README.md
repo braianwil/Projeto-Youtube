@@ -84,7 +84,8 @@ python cortador.py "https://www.twitch.tv/CANAL" --filtro "gta" --vertical
 # Kick
 python cortador.py "https://kick.com/CANAL" --filtro "gta" --vertical
 
-# buscar no YouTube os vídeos mais recentes sobre GTA 6 (só canais de permissoes.txt)
+# buscar no YouTube os vídeos recentes mais promissores sobre GTA 6 (views/hora + crescimento entre buscas;
+# só canais de permissoes.txt; --max-idade-horas 168 por padrão)
 python cortador.py --buscar "GTA 6" --max-videos 3 --vertical --legenda
 
 # vídeo que você já tem no PC

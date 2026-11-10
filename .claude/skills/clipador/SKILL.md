@@ -50,8 +50,12 @@ Objetivo: cortes **transformados de verdade**, com crédito ao criador, para pas
 ## Regra de busca: vídeos MAIS RECENTES e MAIS PROMISSORES
 Sempre que buscar vídeos sobre um tema (GTA 6 por padrão), priorizar:
 1. **Recentes:** busca por data (`ytsearchdate`); assunto quente rende mais views no corte.
-2. **Promissores:** entre os recentes, os que mais estão sendo assistidos (views ajustadas pela idade,
-   `cortador.buscar_videos` → campo `promissor`). Lives e vídeos longos (≥ 8 min) com chat/reação forte.
+2. **Promissores** (`cortador.ranquear_promissores`), olhando **tempo de postagem** e **crescimento**:
+   - velocidade = views ÷ horas desde a postagem (vídeo de 3h com 12 mil views > vídeo de 5 dias com 50 mil);
+   - crescimento gradativo: cada busca salva as views em `saida/views_historico.json`; na busca seguinte
+     compara a velocidade recente com a média → "↑ acelerando" ganha pontos, "↓ esfriando" perde;
+   - só vídeos das últimas `--max-idade-horas` (168h = 7 dias); lives e vídeos ≥ 8 min.
+   - Dica: rodar a busca algumas vezes por dia deixa a medida de crescimento mais precisa.
 3. **Seguros:** só canais de `cortes/permissoes.txt`.
 Depois de cortar, destacar os cortes com maior `nota_global` como os primeiros a postar.
 

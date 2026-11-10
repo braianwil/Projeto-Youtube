@@ -22,7 +22,7 @@ Uso rápido:
 from __future__ import annotations
 
 import argparse
-from datetime import date
+from datetime import date, datetime
 import json
 import re
 import shutil
@@ -302,6 +302,55 @@ def canais_liberados() -> set[str]:
             if l.strip() and not l.startswith("#")}
 
 
+def ranquear_promissores(videos: list[dict], args) -> list[dict]:
+    """Promissor = views por hora desde a postagem + crescimento entre buscas (acelerando ou parado).
+    Guarda as views de cada busca em saida/views_historico.json para medir o crescimento."""
+    import time as _t
+    agora = _t.time()
+    arq = args.saida / "views_historico.json"
+    hist = json.loads(arq.read_text(encoding="utf-8")) if arq.exists() else {}
+    escolhidos = []
+    for v in videos:
+        try:  # detalhe do vídeo (data de postagem e views exatas), sem baixar nada
+            with ydl({"logger": _Mudo()}) as y:
+                d = y.extract_info(v["url"], download=False, process=False)
+        except Exception:
+            continue
+        ts = d.get("timestamp") or d.get("release_timestamp")
+        if not ts and d.get("upload_date"):
+            ts = datetime.strptime(d["upload_date"], "%Y%m%d").timestamp() + 12 * 3600
+        views = d.get("view_count") or v.get("views") or 0
+        if not ts:
+            continue
+        horas = max(0.5, (agora - ts) / 3600)
+        if horas > args.max_idade_horas:
+            continue
+        vph = views / horas  # velocidade média desde a postagem
+        tendencia, acel = "novo", 1.0
+        anteriores = hist.get(v["id"], [])
+        if anteriores:
+            t0, v0 = anteriores[-1]
+            dh = (agora - t0) / 3600
+            if dh >= 0.25:
+                vph_recente = max(0.0, (views - v0) / dh)  # velocidade desde a última busca
+                acel = vph_recente / (vph + 1e-6)
+                tendencia = "↑ acelerando" if acel > 1.2 else ("↓ esfriando" if acel < 0.6 else "→ estável")
+        hist.setdefault(v["id"], []).append([agora, views])
+        hist[v["id"]] = hist[v["id"]][-10:]
+        v.update({"views": views, "horas": round(horas, 1), "views_por_hora": int(vph), "tendencia": tendencia,
+                  "promissor": round(np.log10(1 + vph) + 0.5 * np.log2(min(4, max(0.25, acel))), 3)})
+        escolhidos.append(v)
+    arq.parent.mkdir(parents=True, exist_ok=True)
+    arq.write_text(json.dumps(hist), encoding="utf-8")
+    escolhidos.sort(key=lambda v: -v["promissor"])
+    log(f"  {len(escolhidos)} vídeo(s) promissores (postados nas últimas {args.max_idade_horas:g}h):")
+    for v in escolhidos[: args.max_videos]:
+        idade = f"{v['horas']:.0f}h" if v["horas"] < 48 else f"{v['horas'] / 24:.0f} dias"
+        log(f"   • {v['titulo']} — {v['canal']} | postado há {idade} | {v['views']:,} views | "
+            f"{v['views_por_hora']:,}/h | {v['tendencia']}".replace(",", "."))
+    return escolhidos
+
+
 def buscar_videos(termo: str, quantos: int, args) -> list[dict]:
     """Busca no YouTube os vídeos/lives mais recentes sobre o tema (ex.: "GTA 6").
     Por segurança, só aceita canais de cortes/permissoes.txt (a menos que --qualquer-canal)."""
@@ -327,19 +376,12 @@ def buscar_videos(termo: str, quantos: int, args) -> list[dict]:
                 f"     → python cortes\\aovivo.py \"{e.get('url')}\" --vertical --legenda")
             continue
         videos.append({"id": e["id"], "url": e.get("url") or f"https://www.youtube.com/watch?v={e['id']}",
-                       "titulo": e.get("title"), "canal": canal, "views": e.get("view_count") or 0,
-                       "recencia": len(videos)})
+                       "titulo": e.get("title"), "canal": canal, "views": e.get("view_count") or 0})
     if ignorados:
         top = ", ".join(f"{c} ({n})" for c, n in sorted(ignorados.items(), key=lambda x: -x[1])[:8])
         log(f"  ⚠ ignorados por não estarem em cortes/permissoes.txt: {top}\n"
             "    Adicione os que liberam cortes, ou use --qualquer-canal (risco de strike).")
-    # promissores: entre os recentes, os que mais estão sendo assistidos (views ajustadas pela idade)
-    for v in videos:
-        v["promissor"] = np.log10(1 + v["views"]) - 0.02 * v["recencia"]
-    videos.sort(key=lambda v: -v["promissor"])
-    log(f"  {len(videos)} vídeo(s) de canais liberados encontrados (ordem: mais promissores primeiro)")
-    for v in videos[: args.max_videos]:
-        log(f"   • {v['titulo']} — {v['canal']} ({v['views']:,} views)".replace(",", "."))
+    videos = ranquear_promissores(videos[: args.candidatos], args)
     return videos
 
 
@@ -497,6 +539,9 @@ def criar_parser(descricao: str = "Gera cortes automáticos dos momentos de maio
     ap.add_argument("--chat", type=Path, help="chat .live_chat.json para usar com --arquivo")
     ap.add_argument("--buscar", metavar="TERMO",
                     help='busca no YouTube os vídeos mais recentes sobre o tema, ex: --buscar "GTA 6"')
+    ap.add_argument("--max-idade-horas", type=float, default=168,
+                    help="na busca, só vídeos postados nas últimas N horas (padrão 168 = 7 dias)")
+    ap.add_argument("--candidatos", type=int, default=15, help="na busca, quantos vídeos analisar a fundo")
     ap.add_argument("--min-minutos", type=float, default=8,
                     help="na busca, ignora vídeos mais curtos que isso (padrão 8 min)")
     ap.add_argument("--qualquer-canal", action="store_true",
