@@ -176,7 +176,8 @@ def renderizar(origem: Path, inicio: float, dur: float, destino: Path, args, pic
            "-preset", "veryfast", "-crf", "18", "-c:a", "aac", str(bruto))
     precisa_texto = args.legenda or args.gancho == "auto"
     try:
-        palavras = edicao.transcrever(bruto, args.modelo_whisper) if precisa_texto else []
+        palavras = (edicao.transcrever(bruto, args.modelo_whisper, args.idiomas_legenda.split(","))
+                    if precisa_texto else [])
     except Exception as e:  # legenda é opcional: não perde o corte por causa dela
         log(f"   aviso: transcrição falhou ({e}); seguindo sem legenda")
         palavras = []
@@ -267,6 +268,25 @@ def baixar_analise(url: str, pasta: Path) -> tuple[dict, Path, Path | None]:
 
 
 def baixar_trecho(url: str, inicio: float, fim: float, destino: Path) -> Path:
+    """ffmpeg lê vídeo e áudio direto da plataforma com corte preciso nos dois -> áudio sincronizado."""
+    with ydl({"format": "bv*[height<=1080]+ba/b[height<=1080]/b"}) as y:
+        info = y.extract_info(url, download=False)
+    entradas = []
+    for f in info.get("requested_formats") or [info]:
+        cab = "".join(f"{k}: {v}\r\n" for k, v in (f.get("http_headers") or {}).items())
+        entradas += ["-ss", str(inicio), *(["-headers", cab] if cab else []), "-i", f["url"]]
+    mapa = ["-map", "0:v:0", "-map", "1:a:0"] if entradas.count("-i") == 2 else []
+    saida = destino.with_suffix(".mp4")
+    try:
+        ffmpeg(*entradas, "-t", str(fim - inicio), *mapa, "-c:v", "libx264", "-preset", "veryfast",
+               "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", str(saida))
+        return saida
+    except subprocess.CalledProcessError:
+        log("   (corte direto falhou; tentando pelo yt-dlp)")
+    return _baixar_trecho_ytdlp(url, inicio, fim, destino)
+
+
+def _baixar_trecho_ytdlp(url: str, inicio: float, fim: float, destino: Path) -> Path:
     from yt_dlp.utils import download_range_func
     opts = {
         "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
@@ -358,6 +378,8 @@ def main():
                     help='texto nos 3 primeiros segundos: "auto" (frase dita no pico), "nenhum" ou um texto seu')
     ap.add_argument("--layout", default="auto", choices=["auto", "facecam", "rosto", "blur"],
                     help="vertical: auto detecta webcam/rosto; facecam = webcam em cima e jogo embaixo")
+    ap.add_argument("--idiomas-legenda", default="pt",
+                    help='idiomas que recebem legenda, ex: "pt" ou "pt,es" (inglês fica sem legenda)')
     ap.add_argument("--modelo-whisper", default="small", help="tiny/base/small/medium (maior = melhor e mais lento)")
     ap.add_argument("--atraso-chat", type=int, default=6, help="segundos que o chat demora pra reagir")
     ap.add_argument("--ignorar-inicio", type=int, default=60, help="pula a intro/espera da live")

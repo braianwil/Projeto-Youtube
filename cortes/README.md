@@ -88,6 +88,8 @@ O arquivo `saida/processados.json` guarda o que já foi cortado. Se você rodar 
 | `--max-videos N` | 3 | Quantos vídeos novos processar por execução |
 | `--atraso-chat S` | 6 | Quanto tempo o chat leva para reagir ao momento |
 | `--ignorar-inicio S` | 60 | Pula a tela de "começando já já" |
+| `--idiomas-legenda` | pt | Idiomas que recebem legenda, ex.: `pt,es`. Fala em outro idioma fica sem legenda. |
+| `--layout` | auto | Força `blur` (tela inteira), `facecam` ou `rosto` |
 | `--reprocessar` | – | Corta de novo vídeos que já estão no histórico |
 
 ### Duração por plataforma

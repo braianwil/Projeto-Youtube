@@ -36,8 +36,9 @@ def ajustar_bordas(inicio: float, fim: float, db_fino: np.ndarray, dmin: float, 
 
 
 # --------------------------------------------------------------- transcrição
-def transcrever(clip: Path, modelo: str = "small") -> list[tuple[float, float, str]]:
-    """Palavras com tempo [(inicio, fim, palavra)]. Vazio se o faster-whisper não estiver instalado."""
+def transcrever(clip: Path, modelo: str = "small", idiomas=("pt",)) -> list[tuple[float, float, str]]:
+    """Palavras com tempo [(inicio, fim, palavra)]. Vazio se não houver whisper ou se a fala
+    não estiver em um dos `idiomas` (ex.: vídeo em inglês -> sem legenda)."""
     global _modelo_whisper
     try:
         from faster_whisper import WhisperModel
@@ -49,15 +50,21 @@ def transcrever(clip: Path, modelo: str = "small") -> list[tuple[float, float, s
     pcm = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(clip), "-vn", "-ac", "1",
                           "-ar", "16000", "-f", "f32le", "-"], capture_output=True, check=True).stdout
     audio = np.frombuffer(pcm, dtype=np.float32)
+    def rodar():
+        segs, info = _modelo_whisper.transcribe(audio, language=None, word_timestamps=True, vad_filter=True)
+        if info.language not in idiomas:  # detectado nos primeiros 30s, antes de transcrever
+            print(f"   (fala em '{info.language}': sem legenda/gancho automático)")
+            return []
+        return list(segs)
+
     try:
-        segs, _ = _modelo_whisper.transcribe(audio, language="pt", word_timestamps=True, vad_filter=True)
-        segs = list(segs)  # a GPU só falha aqui, ao rodar de fato
+        segs = rodar()  # a GPU só falha aqui, ao rodar de fato
     except RuntimeError as e:
         if not re.search(r"cublas|cudnn|cuda", str(e), re.IGNORECASE):
             raise
         print("   (GPU sem bibliotecas CUDA; usando o processador para a legenda)")
         _modelo_whisper = WhisperModel(modelo, device="cpu", compute_type="int8")
-        segs, _ = _modelo_whisper.transcribe(audio, language="pt", word_timestamps=True, vad_filter=True)
+        segs = rodar()
     return [(w.start, w.end, w.word.strip()) for s in segs for w in (s.words or []) if w.word.strip()]
 
 
@@ -120,16 +127,18 @@ def detectar_layout(video: Path) -> dict:
             x, y, w, h = max(rostos, key=lambda r: r[2] * r[3])
             caixas.append([v / escala for v in (x, y, w, h)])
     cap.release()
-    if amostras == 0 or len(caixas) < 0.4 * amostras:
+    if amostras == 0 or len(caixas) < 0.6 * amostras:
         return {"tipo": "blur", "W": W, "H": H}
     c = np.array(caixas)
     x, y, w, h = np.median(c, axis=0)
     cx, cy = x + w / 2, y + h / 2
     # rostos de NPC do jogo se mexem; a webcam fica parada
-    if np.std(c[:, 0] + c[:, 2] / 2) > 0.08 * W:
+    if np.std(c[:, 0] + c[:, 2] / 2) > 0.05 * W:
         return {"tipo": "blur", "W": W, "H": H}
     if w < 0.13 * W:
         return {"tipo": "facecam", "W": W, "H": H, "cx": cx, "cy": cy, "fw": w}
+    if len(caixas) < 0.8 * amostras:  # cortar as laterais só se a pessoa está quase sempre na tela
+        return {"tipo": "blur", "W": W, "H": H}
     return {"tipo": "rosto", "W": W, "H": H, "cx": cx}
 
 
