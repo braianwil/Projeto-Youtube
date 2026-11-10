@@ -166,7 +166,11 @@ def renderizar(origem: Path, inicio: float, dur: float, destino: Path, args, pic
     ffmpeg("-ss", str(inicio), "-i", str(origem), "-t", str(dur), "-c:v", "libx264",
            "-preset", "veryfast", "-crf", "18", "-c:a", "aac", str(bruto))
     precisa_texto = args.legenda or args.gancho == "auto"
-    palavras = edicao.transcrever(bruto, args.modelo_whisper) if precisa_texto else []
+    try:
+        palavras = edicao.transcrever(bruto, args.modelo_whisper) if precisa_texto else []
+    except Exception as e:  # legenda é opcional: não perde o corte por causa dela
+        log(f"   aviso: transcrição falhou ({e}); seguindo sem legenda")
+        palavras = []
     if precisa_texto and not palavras:
         log("   (sem transcrição: instale faster-whisper para legenda/gancho automático)")
     gancho = edicao.gancho_automatico(palavras, pico_rel) if args.gancho == "auto" else (
@@ -189,6 +193,12 @@ def renderizar(origem: Path, inicio: float, dur: float, destino: Path, args, pic
 
 
 # ------------------------------------------------------------------ yt-dlp
+class _Mudo:  # esconde "ERROR: canal não tem aba de lives" (é normal)
+    def debug(self, msg): pass
+    def warning(self, msg): pass
+    def error(self, msg): pass
+
+
 def ydl(opts: dict):
     import yt_dlp
     base = {"quiet": True, "no_warnings": True, "noprogress": True}
@@ -201,10 +211,11 @@ def listar_videos(perfil: str, limite: int, filtro: str | None) -> list[dict]:
     vistos, videos = set(), []
     for url in urls:
         try:
-            with ydl({"extract_flat": True, "playlistend": limite * 3}) as y:
+            with ydl({"extract_flat": True, "playlistend": limite * 3, "logger": _Mudo()}) as y:
                 info = y.extract_info(url, download=False)
         except Exception as e:  # aba inexistente, etc.
-            log(f"  aviso: não consegui ler {url}: {e}")
+            if "does not have" not in str(e):
+                log(f"  aviso: não consegui ler {url}: {e}")
             continue
         for e in info.get("entries") or [info]:
             if not e or e.get("id") in vistos:

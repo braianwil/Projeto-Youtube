@@ -41,7 +41,11 @@ def transcrever(clip: Path, modelo: str = "small") -> list[tuple[float, float, s
         return []
     if _modelo_whisper is None:  # carrega uma vez só
         _modelo_whisper = WhisperModel(modelo, compute_type="int8")
-    segs, _ = _modelo_whisper.transcribe(str(clip), language="pt", word_timestamps=True, vad_filter=True)
+    # decodifica com ffmpeg (evita incompatibilidades do PyAV entre versões)
+    pcm = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(clip), "-vn", "-ac", "1",
+                          "-ar", "16000", "-f", "f32le", "-"], capture_output=True, check=True).stdout
+    audio = np.frombuffer(pcm, dtype=np.float32)
+    segs, _ = _modelo_whisper.transcribe(audio, language="pt", word_timestamps=True, vad_filter=True)
     return [(w.start, w.end, w.word.strip()) for s in segs for w in (s.words or []) if w.word.strip()]
 
 
