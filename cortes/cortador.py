@@ -253,7 +253,9 @@ def listar_videos(perfil: str, limite: int, filtro: str | None) -> list[dict]:
             if filtro and not re.search(filtro, e.get("title") or "", re.IGNORECASE):
                 continue
             if e.get("live_status") in ("is_live", "is_upcoming"):
-                log(f"  pulando (ao vivo/agendado; corto quando virar vídeo): {e.get('title')}")
+                log(f"  pulando (ao vivo/agendado): {e.get('title')}\n"
+                    f"  → para cortar durante a live: python cortes\\aovivo.py \"{e.get('webpage_url') or perfil}\""
+                    " --vertical --legenda")
                 continue
             vistos.add(e["id"])
             canal = (e.get("channel") or e.get("uploader") or info.get("channel") or info.get("uploader")
