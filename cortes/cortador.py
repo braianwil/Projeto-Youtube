@@ -99,7 +99,7 @@ def sinal_audio(arquivo: Path, duracao: int) -> tuple[np.ndarray, np.ndarray]:
     base = np.empty_like(db)
     for i in range(0, len(db), 10):
         base[i:i + 10] = np.median(db[max(0, i - 30):i + 30])
-    return normalizar(np.clip(db - base, 0, None)), db_fino
+    return np.clip(db - base, 0, None), db_fino  # dB acima do normal (valor bruto)
 
 
 def sinal_heatmap(info: dict, duracao: int) -> np.ndarray | None:
@@ -110,7 +110,7 @@ def sinal_heatmap(info: dict, duracao: int) -> np.ndarray | None:
     for p in pontos:
         a, b = int(p["start_time"]), int(np.ceil(p["end_time"]))
         s[a:b] = p["value"]
-    return normalizar(s)
+    return s
 
 
 def sinal_chat(msgs: list, duracao: int, atraso: int) -> np.ndarray | None:
@@ -124,7 +124,7 @@ def sinal_chat(msgs: list, duracao: int, atraso: int) -> np.ndarray | None:
             s[t] += 1.0 + (1.5 if PALAVRAS_HYPE.search(texto or "") else 0) + extra
     if s.sum() == 0:
         return None
-    return normalizar(suavizar(s, 8))
+    return suavizar(s, 8)  # mensagens (com peso) por segundo
 
 
 def sinal_clipes(clipes: list, duracao: int) -> np.ndarray | None:
@@ -135,7 +135,7 @@ def sinal_clipes(clipes: list, duracao: int) -> np.ndarray | None:
     for inicio, dur, views in clipes:
         a = max(0, int(inicio))
         s[a:min(duracao, int(inicio + dur))] += 1 + np.log1p(views)
-    return normalizar(s) if s.any() else None
+    return s if s.any() else None
 
 
 # --------------------------------------------------------------------- seleção
@@ -166,11 +166,36 @@ def escolher_trechos(nota: np.ndarray, n: int, dur: int, ignorar_inicio: int, fo
     return sorted(trechos, key=lambda t: -t["nota"])
 
 
+def nota_global(sinais: dict, pesos: dict[str, float], inicio: float, fim: float) -> int:
+    """Nota 0–100 em escala ABSOLUTA: dá para comparar cortes de vídeos e canais diferentes.
+    Mede o quão forte foi a reação em si, não só se foi o melhor momento daquele vídeo."""
+    a, b = max(0, int(inicio)), int(fim) + 1
+    pontos = {}
+    for nome, s in sinais.items():
+        if s is None or not len(s[a:b]):
+            continue
+        v = float(s[a:b].max())
+        if nome == "audio":      # 20 dB acima do volume normal = 100
+            p = v / 20
+        elif nome == "chat":     # 60%: quantas vezes acima da média (10x = 100); 40%: msgs/s (20/s = 100)
+            vezes = v / (float(s.mean()) + 1e-6)
+            p = 0.6 * np.log2(max(vezes, 1)) / np.log2(10) + 0.4 * np.log10(1 + v) / np.log10(21)
+        elif nome == "heatmap":  # 5x mais reassistido que o normal do vídeo = 100
+            p = (v / (float(np.median(s)) + 1e-6) - 1) / 4
+        else:                    # clipes: ~100 mil views somadas = 100
+            p = v / 12.5
+        pontos[nome] = min(1.0, max(0.0, float(p)))
+    if not pontos:
+        return 0
+    return int(round(100 * sum(pontos[k] * pesos[k] for k in pontos) / sum(pesos[k] for k in pontos)))
+
+
 def calcular_nota(sinais: dict[str, np.ndarray | None], pesos: dict[str, float], suav: int):
     total, soma_pesos = None, 0.0
     for nome, s in sinais.items():
         if s is None:
             continue
+        s = normalizar(s)  # dentro do vídeo: cada sinal vale 0..1
         total = s * pesos[nome] if total is None else total + s * pesos[nome]
         soma_pesos += pesos[nome]
     if total is None:
@@ -395,10 +420,11 @@ def processar(args, pasta: Path, titulo: str, info: dict, audio: Path, chat: Pat
     for i, t in enumerate(trechos, 1):
         t["inicio"], t["fim"] = edicao.ajustar_bordas(
             t["inicio"], t["fim"], db_fino, args.dmin, args.dmax)  # cortar na pausa
-        t["nota"] = int(round(t["nota"] * 100))  # 0–100, como no Autoclipper
+        t["nota"] = int(round(t["nota"] * 100))  # relativa: melhor momento DESTE vídeo = 100
+        t["nota_global"] = nota_global(sinais, pesos, t["inicio"], t["fim"])  # comparável entre vídeos
         dur, pico_rel = t["fim"] - t["inicio"], t["pico"] - t["inicio"]
         destino = pasta / f"corte_{i:02d}.mp4"
-        log(f"  corte {i}: {hms(t['inicio'])} → {hms(t['fim'])} (nota {t['nota']}/100)")
+        log(f"  corte {i}: {hms(t['inicio'])} → {hms(t['fim'])} (nota global {t['nota_global']}/100 | no vídeo {t['nota']}/100)")
         if video_local:
             t.update(renderizar(video_local, t["inicio"], dur, destino, args, pico_rel, meta))
         else:

@@ -42,3 +42,7 @@ Objetivo: cortes **transformados de verdade**, com crédito ao criador, para pas
 ## Duração por plataforma (`--plataforma`)
 - Shorts 30–59s (acima de 1 min com reivindicação = bloqueio) · TikTok 61–90s (Recompensas exige > 1 min)
   · Reels 30–90s. O corte de pausas respeita o mínimo.
+
+## Notas
+- `nota_global` (0–100, absoluta, `cortador.nota_global`): comparável entre vídeos e canais; é a nota a
+  mostrar em destaque no app. `nota` é relativa ao próprio vídeo e só serve para ordenar dentro dele.

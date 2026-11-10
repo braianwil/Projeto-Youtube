@@ -48,7 +48,10 @@ Inspirada no Autoclipper, mas sem usar nenhuma API paga. Tudo roda no seu PC.
   - Rostos de NPC do GTA se mexem e são ignorados. Só a webcam parada conta.
 - **Legenda animada** (`--legenda`): até 3 palavras por vez, com a palavra falada em amarelo e um "pulo" de destaque.
 - **Gancho** (`--gancho auto`): a frase dita no momento do pico aparece em destaque nos 3 primeiros segundos. Você também pode escrever o seu, com `--gancho "ELE NÃO ESPERAVA ISSO"`, ou desligar com `--gancho nenhum`.
-- **Nota de 0 a 100** em cada corte, mais a fala transcrita no `relatorio.json`, para ajudar você a escrever o título.
+- **Duas notas de 0 a 100** em cada corte, no `relatorio.json`:
+  - `nota_global`: escala absoluta, **comparável entre vídeos e canais**. Mede a força da reação: chat quantas vezes acima da média e mensagens por segundo, volume acima do normal, "Mais repetidos" e views dos clipes da comunidade. Guia: 0–39 fraco, 40–69 bom, 70–100 ótimo.
+  - `nota`: relativa, só ordena os momentos dentro do mesmo vídeo.
+- A fala transcrita também vai para o `relatorio.json`, para ajudar você a escrever o título.
 
 A transcrição usa o faster-whisper e só roda nos trechos escolhidos, nunca na live inteira. O modelo é escolhido com `--modelo-whisper` (padrão: `small`). O `tiny` é bem mais rápido, e o `medium` é mais preciso.
 

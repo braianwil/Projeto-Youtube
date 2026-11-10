@@ -91,7 +91,8 @@ def analisar_bloco(args, segs, novo_desde: float, t0: float, msgs: list, ocupado
     audio, db_fino = C.sinal_audio(bloco, duracao)
     rel = [((t - t0) - base, txt, extra) for t, txt, extra in list(msgs)]
     chat = C.sinal_chat(rel, duracao, args.atraso_chat)
-    nota = C.calcular_nota({"chat": chat, "audio": audio}, {"chat": 0.7, "audio": 0.3}, max(5, args.duracao // 3))
+    sinais, pesos = {"chat": chat, "audio": audio}, {"chat": 0.7, "audio": 0.3}
+    nota = C.calcular_nota(sinais, pesos, max(5, args.duracao // 3))
     nota[: max(0, int(novo_desde - base))] = 0  # só procura pico no trecho novo (o resto é contexto)
     # pico muito perto do fim ainda não tem a "reação": fica para o próximo bloco
     limite = duracao if final else max(int(novo_desde - base) + 1, duracao - int(args.duracao * 0.4))
@@ -103,7 +104,8 @@ def analisar_bloco(args, segs, novo_desde: float, t0: float, msgs: list, ocupado
         nome = time.strftime("%Hh%Mm%Ss", time.gmtime(abs_ini + offset))  # minuto real da live
         destino = pasta.parent / f"corte_{nome}.mp4"
         t["nota"] = int(round(t["nota"] * 100))
-        C.log(f"  ✂ corte em {C.hms(abs_ini + offset)} da live (nota {t['nota']}/100)")
+        t["nota_global"] = C.nota_global(sinais, pesos, t["inicio"], t["fim"])
+        C.log(f"  ✂ corte em {C.hms(abs_ini + offset)} da live (nota global {t['nota_global']}/100)")
         meta = {"canal": (info.get("channel") or info.get("uploader") or "").replace(" ", ""),
                 "titulo": info.get("title"), "link": info.get("webpage_url") or ""}
         t.update(C.renderizar(bloco, t["inicio"], t["fim"] - t["inicio"], destino, args, t["pico"] - t["inicio"],
