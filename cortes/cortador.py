@@ -266,10 +266,7 @@ def renderizar(origem: Path, inicio: float, dur: float, destino: Path, args, pic
 
 def avisar_permissao(canal: str) -> None:
     """Lembra de cortar só quem libera cortes (lista em cortes/permissoes.txt)."""
-    arq = Path(__file__).with_name("permissoes.txt")
-    liberados = {l.strip().lstrip("@").lower() for l in arq.read_text(encoding="utf-8").splitlines()
-                 if l.strip() and not l.startswith("#")} if arq.exists() else set()
-    if canal and canal.lstrip("@").lower() not in liberados:
+    if canal and canal.lstrip("@").lower().replace(" ", "") not in canais_liberados():
         log(f"  ⚠ '{canal}' não está em cortes/permissoes.txt. Confirme que o criador libera cortes"
             " antes de postar (evita strike).")
 
@@ -295,6 +292,48 @@ def nome_do_perfil(url: str) -> str:
 
 def nome_pasta(txt: str, limite: int = 80) -> str:
     return re.sub(r"[^\w\- ]", "", txt or "")[:limite].strip() or "sem-nome"
+
+
+def canais_liberados() -> set[str]:
+    arq = Path(__file__).with_name("permissoes.txt")
+    if not arq.exists():
+        return set()
+    return {l.strip().lstrip("@").lower().replace(" ", "") for l in arq.read_text(encoding="utf-8").splitlines()
+            if l.strip() and not l.startswith("#")}
+
+
+def buscar_videos(termo: str, quantos: int, args) -> list[dict]:
+    """Busca no YouTube os vídeos/lives mais recentes sobre o tema (ex.: "GTA 6").
+    Por segurança, só aceita canais de cortes/permissoes.txt (a menos que --qualquer-canal)."""
+    log(f"Buscando no YouTube: \"{termo}\" (mais recentes)…")
+    with ydl({"extract_flat": True, "logger": _Mudo()}) as y:
+        info = y.extract_info(f"ytsearchdate{quantos}:{termo}", download=False)
+    liberados = canais_liberados()
+    videos, ignorados = [], {}
+    for e in info.get("entries") or []:
+        if not e or e.get("live_status") == "is_upcoming":
+            continue
+        dur = e.get("duration") or 0
+        if e.get("live_status") != "is_live" and dur and dur < args.min_minutos * 60:
+            continue  # Shorts e vídeos curtos não rendem cortes
+        canal = e.get("channel") or e.get("uploader") or ""
+        ids = {canal.lower().replace(" ", ""), (e.get("uploader_id") or "").lstrip("@").lower(),
+               (e.get("channel_id") or "").lower()}
+        if not args.qualquer_canal and not (ids & liberados):
+            ignorados[canal] = ignorados.get(canal, 0) + 1
+            continue
+        if e.get("live_status") == "is_live":
+            log(f"  🔴 ao vivo agora: {e.get('title')} ({canal})\n"
+                f"     → python cortes\\aovivo.py \"{e.get('url')}\" --vertical --legenda")
+            continue
+        videos.append({"id": e["id"], "url": e.get("url") or f"https://www.youtube.com/watch?v={e['id']}",
+                       "titulo": e.get("title"), "canal": canal})
+    if ignorados:
+        top = ", ".join(f"{c} ({n})" for c, n in sorted(ignorados.items(), key=lambda x: -x[1])[:8])
+        log(f"  ⚠ ignorados por não estarem em cortes/permissoes.txt: {top}\n"
+            "    Adicione os que liberam cortes, ou use --qualquer-canal (risco de strike).")
+    log(f"  {len(videos)} vídeo(s) de canais liberados encontrados")
+    return videos
 
 
 def listar_videos(perfil: str, limite: int, filtro: str | None) -> list[dict]:
@@ -449,6 +488,12 @@ def criar_parser(descricao: str = "Gera cortes automáticos dos momentos de maio
     ap.add_argument("perfil", nargs="?", help="link do canal/perfil ou de um vídeo/live específico")
     ap.add_argument("--arquivo", type=Path, help="usar vídeo já baixado (sem internet)")
     ap.add_argument("--chat", type=Path, help="chat .live_chat.json para usar com --arquivo")
+    ap.add_argument("--buscar", metavar="TERMO",
+                    help='busca no YouTube os vídeos mais recentes sobre o tema, ex: --buscar "GTA 6"')
+    ap.add_argument("--min-minutos", type=float, default=8,
+                    help="na busca, ignora vídeos mais curtos que isso (padrão 8 min)")
+    ap.add_argument("--qualquer-canal", action="store_true",
+                    help="na busca, aceita canais fora de permissoes.txt (risco de strike)")
     ap.add_argument("--filtro", default=None, help='regex no título, ex: "gta ?(6|vi)"')
     ap.add_argument("--max-videos", type=int, default=3)
     ap.add_argument("--cortes", type=int, default=5, help="cortes por vídeo")
@@ -501,14 +546,17 @@ def main():
         log(f"✔ {len(rel['cortes'])} cortes em {pasta}")
         return
 
-    if not args.perfil:
-        ap.error("informe o link do perfil ou --arquivo")
+    if not args.perfil and not args.buscar:
+        ap.error("informe o link do perfil, --buscar ou --arquivo")
 
     historico_arq = args.saida / "processados.json"
     historico = json.loads(historico_arq.read_text()) if historico_arq.exists() else {}
 
-    log(f"Lendo {args.perfil} …")
-    videos = listar_videos(args.perfil, args.max_videos * 4, args.filtro)
+    if args.buscar:
+        videos = buscar_videos(args.buscar, args.max_videos * 10, args)
+    else:
+        log(f"Lendo {args.perfil} …")
+        videos = listar_videos(args.perfil, args.max_videos * 4, args.filtro)
     novos = [v for v in videos if args.reprocessar or v["id"] not in historico][: args.max_videos]
     if not novos:
         log("Nenhum vídeo novo para cortar." + ("" if args.reprocessar else

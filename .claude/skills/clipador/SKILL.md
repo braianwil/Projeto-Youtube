@@ -46,3 +46,16 @@ Objetivo: cortes **transformados de verdade**, com crédito ao criador, para pas
 ## Notas
 - `nota_global` (0–100, absoluta, `cortador.nota_global`): comparável entre vídeos e canais; é a nota a
   mostrar em destaque no app. `nota` é relativa ao próprio vídeo e só serve para ordenar dentro dele.
+
+## Comando "buscar vídeos no youtube"
+Quando o usuário pedir para **buscar vídeos no YouTube** (ex.: sobre GTA 6) e cortar, a ação é
+`cortador.py --buscar "<tema>"` (yt-dlp `ytsearchdate`, mais recentes primeiro). Esta sessão na nuvem
+não acessa o YouTube: entregar o comando pronto para o PowerShell do usuário:
+```
+cd $HOME\Documents\Projeto-Youtube; git pull
+python cortes\cortador.py --buscar "GTA 6" --max-videos 3 --vertical --legenda
+```
+- Só corta canais de `cortes/permissoes.txt` (ignorados são listados). `--qualquer-canal` só se o usuário
+  pedir, avisando do risco de strike.
+- Ignora Shorts/vídeos < `--min-minutos` (8). Lives encontradas viram sugestão de `aovivo.py`.
+- Histórico (`saida/processados.json`) evita cortar o mesmo vídeo de novo.
