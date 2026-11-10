@@ -126,7 +126,7 @@ def analisar_bloco(args, segs, novo_desde: float, t0: float, msgs: list, ocupado
 def acompanhar(args, info: dict, fonte_teste: Path | None = None):
     canal = C.nome_pasta(info.get("channel") or info.get("uploader") or C.nome_do_perfil(args.perfil), 40)
     titulo = C.nome_pasta(f"AO VIVO {time.strftime('%Hh%M')} {info.get('title') or ''}")
-    pasta_live = args.saida / date.today().isoformat() / canal / titulo
+    pasta_live = args.saida / args.nicho / date.today().isoformat() / canal / titulo
     pasta = pasta_live / "gravacao"
     pasta.mkdir(parents=True, exist_ok=True)
     C.log(f"🔴 AO VIVO: {info.get('title')}\n  cortes em: {pasta_live}")

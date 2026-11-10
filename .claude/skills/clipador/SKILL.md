@@ -76,3 +76,19 @@ python cortes\cortador.py --buscar "GTA 6" --max-videos 3 --vertical --legenda
   pedir, avisando do risco de strike.
 - Ignora Shorts/vídeos < `--min-minutos` (8). Lives encontradas viram sugestão de `aovivo.py`.
 - Histórico (`saida/processados.json`) evita cortar o mesmo vídeo de novo.
+
+## Nichos (`--nicho`) — um cortador para vários canais
+Pedido "buscar vídeos de <tema> no YouTube e cortar" → `cortador.py --buscar "<tema>"` (o tema vira o nicho:
+pasta `saida/<nicho>/<data>/…`, hashtags e busca). Presets em `cortador.NICHOS`:
+- `gta6` (padrão): criadores BR, legenda em PT.
+- `gta6-gringo`: criadores em inglês → `--nicho gta6-gringo --buscar` (sem texto = "GTA 6 gameplay");
+  transcreve em inglês e **traduz legenda + gancho para PT** (Argos Translate, local/grátis:
+  `pip install argostranslate`; sem ele a legenda fica em inglês). Pula títulos em português.
+- Qualquer outro tema (ex.: "filmes de terror") = nicho genérico, legenda PT.
+Atenção por nicho: trechos de **filmes/séries/música de estúdio** geram Content ID/strike quase sempre —
+cortar só criadores que COMENTAM (reviews, podcasts, reacts) e liberam cortes (`permissoes.txt`).
+Exemplos para executar (sessão no PC do usuário):
+```
+python cortes\cortador.py --nicho gta6-gringo --buscar --max-videos 3 --vertical --legenda
+python cortes\cortador.py --buscar "filmes de terror" --max-videos 3 --vertical --legenda
+```

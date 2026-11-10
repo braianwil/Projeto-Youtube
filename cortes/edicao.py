@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 _modelo_whisper = None
+ultimo_idioma = ""  # idioma detectado na última transcrição (para tradução)
 _trava = threading.Lock()  # live e "início da live" rodam em paralelo: 1 transcrição por vez
 
 
@@ -58,7 +59,9 @@ def _transcrever(clip: Path, modelo: str, idiomas) -> list[tuple[float, float, s
                           "-ar", "16000", "-f", "f32le", "-"], capture_output=True, check=True).stdout
     audio = np.frombuffer(pcm, dtype=np.float32)
     def rodar():
+        global ultimo_idioma
         segs, info = _modelo_whisper.transcribe(audio, language=None, word_timestamps=True, vad_filter=True)
+        ultimo_idioma = info.language
         if info.language not in idiomas:  # detectado nos primeiros 30s, antes de transcrever
             print(f"   (fala em '{info.language}': sem legenda/gancho automático)")
             return []

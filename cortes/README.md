@@ -88,6 +88,12 @@ python cortador.py "https://kick.com/CANAL" --filtro "gta" --vertical
 # só canais de permissoes.txt; --max-idade-horas 168 por padrão)
 python cortador.py --buscar "GTA 6" --max-videos 3 --vertical --legenda
 
+# criadores GRINGOS de GTA 6, com legenda traduzida para PT (precisa: pip install argostranslate)
+python cortador.py --nicho gta6-gringo --buscar --max-videos 3 --vertical --legenda
+
+# qualquer outro nicho: o tema vira busca, pasta e hashtags (saida/filmes-de-terror/...)
+python cortador.py --buscar "filmes de terror" --max-videos 3 --vertical --legenda
+
 # vídeo que você já tem no PC
 python cortador.py --arquivo live.mp4 --chat live.live_chat.json
 ```

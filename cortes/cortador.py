@@ -37,12 +37,49 @@ from plataformas import chat_youtube, coletar_extras, urls_do_perfil
 
 PALAVRAS_HYPE = re.compile(
     r"(k{3,}|(rs){2,}|ha(ha)+|lol|lmao|clip|corta|cortem|mds|meu deus|caraca|caralho|"
-    r"pqp|insano|absurdo|w+t+f+|omg|pog|kekw|lul|🔥|😂|🤣|💀|😱)",
+    r"pqp|insano|absurdo|w+t+f+|omg|pog|kekw|lul|no way|bro+|holy|insane|crazy|lets? go+|"
+    r"🔥|😂|🤣|💀|😱)",
     re.IGNORECASE,
 )
 
 
 # ----------------------------------------------------------------------------- util
+# Nichos prontos. Qualquer outro texto em --nicho/--buscar vira um nicho genérico.
+NICHOS = {
+    "gta6": {"buscar": "GTA 6", "hashtags": "#GTA6 #GTAVI #GTA #cortes", "idiomas": "pt", "traduzir": ""},
+    "gta6-gringo": {"buscar": "GTA 6 gameplay", "hashtags": "#GTA6 #GTAVI #GTA #legendado #cortes",
+                    "idiomas": "en", "traduzir": "pt", "so_ingles": True},
+}
+_TITULO_PT = re.compile(r"\b(ao vivo|você|voce|não|nao|pra|galera|mano|novo|jogando|com os|vídeo)\b", re.I)
+
+
+def slug(txt: str) -> str:
+    import unicodedata
+    t = unicodedata.normalize("NFKD", txt).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+", "-", t).strip("-") or "nicho"
+
+
+def aplicar_nicho(args) -> None:
+    """Define nicho, termo de busca, hashtags, idiomas e tradução a partir de --nicho/--buscar."""
+    nome = args.nicho or (args.buscar if args.buscar else "gta6")
+    chave = slug(nome)
+    if chave in ("gta-6", "gta-vi", "gta6"):
+        chave = "gta6"
+    cfg = NICHOS.get(chave) or {
+        "buscar": nome, "idiomas": "pt", "traduzir": "",
+        "hashtags": " ".join("#" + w for w in [slug(nome).replace("-", "")] + slug(nome).split("-")
+                             if len(w) > 2)[:80] + " #cortes"}
+    args.nicho = chave
+    if args.buscar == "":  # --buscar sem texto: usa o termo do nicho
+        args.buscar = cfg["buscar"]
+    args.hashtags = cfg["hashtags"]
+    args.so_ingles = cfg.get("so_ingles", False)
+    if args.idiomas_legenda is None:
+        args.idiomas_legenda = cfg["idiomas"]
+    if args.traduzir is None:
+        args.traduzir = cfg["traduzir"]
+
+
 # (mínimo, alvo, máximo) em segundos
 PLATAFORMAS = {
     "shorts": (30, 50, 59),   # >60s com reivindicação de direitos = Short bloqueado
@@ -229,6 +266,13 @@ def renderizar(origem: Path, inicio: float, dur: float, destino: Path, args, pic
     except Exception as e:  # legenda é opcional: não perde o corte por causa dela
         log(f"   aviso: transcrição falhou ({e}); seguindo sem legenda")
         palavras = []
+    if palavras and args.traduzir and edicao.ultimo_idioma and edicao.ultimo_idioma != args.traduzir:
+        try:  # criador gringo: legenda e gancho traduzidos (local, sem custo)
+            import traducao
+            palavras = traducao.traduzir_palavras(palavras, edicao.ultimo_idioma, args.traduzir)
+        except Exception as e:
+            log(f"   aviso: tradução indisponível ({e.__class__.__name__}); legenda no idioma original"
+                " — instale com: pip install argostranslate")
     if precisa_texto and not palavras:
         log("   (sem fala detectada neste trecho: corte sai sem legenda/gancho)")
     gancho = edicao.gancho_automatico(palavras, pico_rel) if args.gancho == "auto" else (
@@ -258,7 +302,7 @@ def renderizar(origem: Path, inicio: float, dur: float, destino: Path, args, pic
         f"{titulo}\n\n"
         f"🎥 Créditos: {credito or meta.get('canal', '')} — vídeo completo: {meta.get('link', '')}\n"
         f"Corte com edição, legenda e comentários próprios. Todos os direitos ao criador original.\n\n"
-        f"#GTA6 #GTAVI #GTA #cortes\n", encoding="utf-8")
+        f"{getattr(args, 'hashtags', '#cortes')}\n", encoding="utf-8")
     return {"layout": lay["tipo"], "gancho": gancho, "pausas_removidas_s": round(removido, 1),
             "zoom_em": [round(t, 1) for t in enfase], "duracao_final": round(dur, 1),
             "fala": " ".join(w for _, _, w in palavras)[:500] if palavras else ""}
@@ -388,6 +432,8 @@ def buscar_videos(termo: str, quantos: int, args) -> list[dict]:
         dur = e.get("duration") or 0
         if e.get("live_status") != "is_live" and dur and dur < args.min_minutos * 60:
             continue  # Shorts e vídeos curtos não rendem cortes
+        if getattr(args, "so_ingles", False) and _TITULO_PT.search(e.get("title") or ""):
+            continue  # nicho gringo: pula vídeos em português
         canal = e.get("channel") or e.get("uploader") or ""
         ids = {canal.lower().replace(" ", ""), (e.get("uploader_id") or "").lstrip("@").lower(),
                (e.get("channel_id") or "").lower()}
@@ -560,8 +606,13 @@ def criar_parser(descricao: str = "Gera cortes automáticos dos momentos de maio
     ap.add_argument("perfil", nargs="?", help="link do canal/perfil ou de um vídeo/live específico")
     ap.add_argument("--arquivo", type=Path, help="usar vídeo já baixado (sem internet)")
     ap.add_argument("--chat", type=Path, help="chat .live_chat.json para usar com --arquivo")
-    ap.add_argument("--buscar", metavar="TERMO",
-                    help='busca no YouTube os vídeos mais recentes sobre o tema, ex: --buscar "GTA 6"')
+    ap.add_argument("--buscar", metavar="TERMO", nargs="?", const="",
+                    help='busca no YouTube vídeos promissores sobre o tema, ex: --buscar "filmes de terror" '
+                         '(sem texto: usa o termo do --nicho)')
+    ap.add_argument("--nicho", default=None,
+                    help='"gta6" (padrão), "gta6-gringo" (criadores em inglês, legenda traduzida) ou qualquer tema')
+    ap.add_argument("--traduzir", default=None, metavar="IDIOMA",
+                    help='traduz legenda/gancho para este idioma, ex: "pt" ("" desliga). Padrão: definido pelo nicho')
     ap.add_argument("--max-idade-horas", type=float, default=0,
                     help="na busca, limite de idade em horas (padrão 0 = sem limite; antigos precisam de mais views)")
     ap.add_argument("--candidatos", type=int, default=25, help="na busca, quantos vídeos analisar a fundo")
@@ -581,7 +632,7 @@ def criar_parser(descricao: str = "Gera cortes automáticos dos momentos de maio
                     help='texto nos 3 primeiros segundos: "auto" (frase dita no pico), "nenhum" ou um texto seu')
     ap.add_argument("--layout", default="auto", choices=["auto", "facecam", "rosto", "blur"],
                     help="vertical: auto detecta webcam/rosto; facecam = webcam em cima e jogo embaixo")
-    ap.add_argument("--idiomas-legenda", default="pt",
+    ap.add_argument("--idiomas-legenda", default=None,
                     help='idiomas que recebem legenda, ex: "pt" ou "pt,es" (inglês fica sem legenda)')
     ap.add_argument("--sem-cortar-silencio", action="store_true", help="não remove pausas/partes mortas")
     ap.add_argument("--sem-zoom", action="store_true", help="sem zoom nos momentos de ênfase")
@@ -600,6 +651,7 @@ def criar_parser(descricao: str = "Gera cortes automáticos dos momentos de maio
 
 
 def preparar_args(args):
+    aplicar_nicho(args)
     args.dmin, alvo, args.dmax = PLATAFORMAS[args.plataforma]
     args.duracao = args.duracao or alvo
     args.dmin, args.dmax = min(args.dmin, args.duracao), max(args.dmax, args.duracao)
@@ -614,7 +666,7 @@ def main():
     args = preparar_args(ap.parse_args())
 
     if args.arquivo:
-        pasta = args.saida / date.today().isoformat() / "arquivos-locais" / nome_pasta(args.arquivo.stem)
+        pasta = args.saida / args.nicho / date.today().isoformat() / "arquivos-locais" / nome_pasta(args.arquivo.stem)
         pasta.mkdir(parents=True, exist_ok=True)
         log(f"▶ {args.arquivo.name}")
         rel = processar(args, pasta, args.arquivo.stem, {}, args.arquivo, args.chat, args.arquivo, None)
@@ -641,7 +693,7 @@ def main():
     for v in novos:
         log(f"\n▶ {v['titulo']}")
         # saida/<data>/<canal>/<vídeo>/
-        pasta = (args.saida / date.today().isoformat() / nome_pasta(v["canal"], 40)
+        pasta = (args.saida / args.nicho / date.today().isoformat() / nome_pasta(v["canal"], 40)
                  / nome_pasta(v["titulo"] or v["id"]))
         pasta.mkdir(parents=True, exist_ok=True)
         try:
