@@ -189,7 +189,7 @@ def _limpar(txt: str) -> str:
 
 
 def gerar_ass(destino: Path, palavras, gancho: str, vertical: bool, layout: str,
-              credito: str = "", pergunta: str = "", dur: float = 0) -> None:
+              credito: str = "", pergunta: str = "", dur: float = 0, credito_seg: float = 5) -> None:
     rx, ry = (1080, 1920) if vertical else (1920, 1080)
     tam_leg, tam_gancho = (74, 66) if vertical else (64, 56)
     margem_leg = {"blur": 470, "facecam": 360, "rosto": 420}.get(layout, 420) if vertical else 80
@@ -210,8 +210,12 @@ Style: Gancho,Arial,{tam_gancho},&H00000000,&H00000000,&H0000FFFF,&H00000000,-1,
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     ev = []
-    if credito and dur:  # crédito do criador visível o vídeo todo
-        ev.append(f"Dialogue: 2,{_t(0)},{_t(dur)},Credito,,0,0,0,,{_limpar(credito)}")
+    if credito and dur:  # crédito do criador no começo e no fim (sem poluir o meio do vídeo)
+        if dur <= 2 * credito_seg + 2:
+            ev.append(f"Dialogue: 2,{_t(0)},{_t(dur)},Credito,,0,0,0,,{_limpar(credito)}")
+        else:
+            for a, b in ((0, credito_seg), (dur - credito_seg, dur)):
+                ev.append(f"Dialogue: 2,{_t(a)},{_t(b)},Credito,,0,0,0,,{{\\fad(200,200)}}{_limpar(credito)}")
     if pergunta and dur > 8:  # desfecho: pergunta para o público nos 3s finais
         ev.append(f"Dialogue: 2,{_t(dur - 3)},{_t(dur)},Pergunta,,0,0,0,,{{\\fad(200,0)}}{_limpar(pergunta).upper()}")
     if gancho:

@@ -29,7 +29,7 @@ Tudo isso está na skill `.claude/skills/clipador/SKILL.md`.
 
 - **Sem partes mortas:** remove pausas e silêncios, sem passar do mínimo da plataforma. Desligue com `--sem-cortar-silencio`.
 - **Zoom na ênfase:** zoom suave de 12% nos gritos, risadas e punchlines. Desligue com `--sem-zoom`.
-- **Crédito na tela:** o `@canal` aparece o vídeo todo. Use `--credito "@seuTexto"` para trocar ou `--credito nenhum` para tirar.
+- **Crédito na tela:** o `@canal` aparece nos 5s iniciais e nos 5s finais (`--credito-seg` muda a duração). Use `--credito "@seuTexto"` para trocar ou `--credito nenhum` para tirar.
 - **Pergunta final** nos 3s finais. Troque com `--pergunta "..."` ou desligue com `--pergunta nenhum`.
 - **`corte_XX.txt`:** descrição pronta para colar, com título, créditos, link do vídeo completo e hashtags.
 - **`cortes/permissoes.txt`:** lista dos canais que liberam cortes. O cortador avisa quando o canal não está na lista.

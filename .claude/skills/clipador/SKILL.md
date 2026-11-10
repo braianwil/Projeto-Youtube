@@ -36,7 +36,7 @@ Objetivo: cortes **transformados de verdade**, com crédito ao criador, para pas
 
 ## 5. Criadores e créditos
 - Cortar só quem libera cortes: lista em `cortes/permissoes.txt`; o cortador avisa se o canal não estiver lá.
-- Crédito `@canal` na tela o vídeo todo (`--credito`) e arquivo `corte_XX.txt` com título, créditos,
+- Crédito `@canal` na tela nos 5s iniciais e 5s finais (`--credito`, `--credito-seg`) e arquivo `corte_XX.txt` com título, créditos,
   link do vídeo completo e hashtags, pronto para colar na descrição.
 
 ## Duração por plataforma (`--plataforma`)

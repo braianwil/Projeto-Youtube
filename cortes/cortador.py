@@ -245,7 +245,7 @@ def renderizar(origem: Path, inicio: float, dur: float, destino: Path, args, pic
     pergunta = "" if args.pergunta == "nenhum" else args.pergunta
     ass = destino.with_suffix(".ass")
     edicao.gerar_ass(ass, palavras if args.legenda else [], gancho, args.vertical, lay["tipo"],
-                     credito, pergunta, dur)
+                     credito, pergunta, dur, args.credito_seg)
     filtro += f",ass={ass.name}"
     ffmpeg("-i", bruto.name, "-filter_complex", filtro + "[v]", "-map", "[v]", "-map", "0:a?",
            "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-c:a", "aac", "-b:a", "160k",
@@ -465,6 +465,8 @@ def criar_parser(descricao: str = "Gera cortes automáticos dos momentos de maio
                     help='idiomas que recebem legenda, ex: "pt" ou "pt,es" (inglês fica sem legenda)')
     ap.add_argument("--sem-cortar-silencio", action="store_true", help="não remove pausas/partes mortas")
     ap.add_argument("--sem-zoom", action="store_true", help="sem zoom nos momentos de ênfase")
+    ap.add_argument("--credito-seg", type=float, default=5,
+                    help="segundos que o crédito aparece no início e no fim (padrão 5)")
     ap.add_argument("--credito", default="auto", help='texto do crédito na tela: "auto" (@canal), "nenhum" ou seu texto')
     ap.add_argument("--pergunta", default="E VOCÊ, O QUE FARIA? COMENTA!",
                     help='pergunta nos 3s finais ("nenhum" desliga)')
