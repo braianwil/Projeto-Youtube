@@ -114,6 +114,7 @@ python aovivo.py "https://kick.com/CANAL" --vertical --legenda --bloco 5
 - Grava a live em pedaços de 30s e lê o chat em tempo real: IRC anônimo da Twitch, websocket da Kick e yt-dlp no YouTube. Tudo grátis.
 - A cada `--bloco` minutos (padrão 10), analisa o trecho novo e gera `--cortes-por-bloco` cortes (padrão 1). Um pico no fim do bloco fica para o bloco seguinte, para pegar a reação.
 - Os cortes ficam em `saida/<data>/<canal>/AO VIVO <hora> <título>/corte_01h23m45s.mp4`. O nome indica o minuto da live.
+- **O que já tinha passado antes do comando também é cortado**, em paralelo, na subpasta `inicio-da-live/`. No YouTube, ele pega a live desde o início (até 120h). Na Twitch, usa o VOD em andamento. Na Kick, só corta a partir do comando. Use `--sem-passado` para desligar.
 - Ao fim da live, apaga a gravação (use `--manter-gravacao` para guardar) e volta a esperar a próxima. Com `--uma-vez`, ele para quando a live acaba.
 - Para encerrar, use `Ctrl+C` ou feche a janela.
 

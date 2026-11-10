@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import re
 import subprocess
+import threading
 from pathlib import Path
 
 import numpy as np
 
 _modelo_whisper = None
+_trava = threading.Lock()  # live e "início da live" rodam em paralelo: 1 transcrição por vez
 
 
 # --------------------------------------------------------------- bordas
@@ -37,6 +39,11 @@ def ajustar_bordas(inicio: float, fim: float, db_fino: np.ndarray, dmin: float, 
 
 # --------------------------------------------------------------- transcrição
 def transcrever(clip: Path, modelo: str = "small", idiomas=("pt",)) -> list[tuple[float, float, str]]:
+    with _trava:
+        return _transcrever(clip, modelo, idiomas)
+
+
+def _transcrever(clip: Path, modelo: str, idiomas) -> list[tuple[float, float, str]]:
     """Palavras com tempo [(inicio, fim, palavra)]. Vazio se não houver whisper ou se a fala
     não estiver em um dos `idiomas` (ex.: vídeo em inglês -> sem legenda)."""
     global _modelo_whisper

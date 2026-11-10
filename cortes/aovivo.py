@@ -25,6 +25,7 @@ from pathlib import Path
 
 import cortador as C
 import edicao
+import passado
 from plataformas import iniciar_chat_ao_vivo, plataforma
 
 SEG = 30  # segundos por pedaço de gravação
@@ -78,7 +79,7 @@ def segmentos(pasta: Path) -> list[tuple[Path, float, float]]:
 
 
 def analisar_bloco(args, segs, novo_desde: float, t0: float, msgs: list, ocupado: list, pasta: Path,
-                   info: dict, relatorio: list, final: bool) -> float:
+                   info: dict, relatorio: list, final: bool, offset: float = 0) -> float:
     """Junta os pedaços, acha o(s) melhor(es) momento(s) do trecho novo e renderiza.
     Retorna até onde (segundo da live) o trecho já foi avaliado."""
     base = segs[0][1]
@@ -99,12 +100,12 @@ def analisar_bloco(args, segs, novo_desde: float, t0: float, msgs: list, ocupado
     for t in C.escolher_trechos(nota, args.cortes_por_bloco, args.duracao, 0, ocupado=antes):
         t["inicio"], t["fim"] = edicao.ajustar_bordas(t["inicio"], t["fim"], db_fino, args.dmin, args.dmax)
         abs_ini = base + t["inicio"]
-        nome = time.strftime("%Hh%Mm%Ss", time.gmtime(abs_ini))
+        nome = time.strftime("%Hh%Mm%Ss", time.gmtime(abs_ini + offset))  # minuto real da live
         destino = pasta.parent / f"corte_{nome}.mp4"
         t["nota"] = int(round(t["nota"] * 100))
-        C.log(f"  ✂ corte em {C.hms(abs_ini)} da live (nota {t['nota']}/100)")
+        C.log(f"  ✂ corte em {C.hms(abs_ini + offset)} da live (nota {t['nota']}/100)")
         t.update(C.renderizar(bloco, t["inicio"], t["fim"] - t["inicio"], destino, args, t["pico"] - t["inicio"]))
-        t.update({"arquivo": destino.name, "minuto_da_live": C.hms(abs_ini),
+        t.update({"arquivo": destino.name, "minuto_da_live": C.hms(abs_ini + offset),
                   "inicio": round(abs_ini, 1), "fim": round(base + t["fim"], 1), "pico": base + t["pico"]})
         ocupado.append((t["inicio"], t["fim"]))
         relatorio.append(t)
@@ -132,6 +133,12 @@ def acompanhar(args, info: dict, fonte_teste: Path | None = None):
     while not (pasta / "seg_00000.ts").exists() and p2.poll() is None:
         time.sleep(0.5)
     t0 = time.time()  # horário (aprox.) do início da gravação, para alinhar o chat
+    inicio_live = info.get("release_timestamp") or info.get("timestamp") or t0
+    offset = max(0.0, t0 - inicio_live)  # quanto da live já tinha passado
+    if offset > 120 and not args.sem_passado and not fonte_teste:
+        C.log(f"  a live já tinha {C.hms(offset)}: cortando esse trecho em paralelo…")
+        threading.Thread(target=passado.recuperar, daemon=True,
+                         args=(args, info, pasta_live / "inicio-da-live", offset)).start()
 
     feito, ocupado, relatorio = 0.0, [], []
     bloco_s = args.bloco * 60
@@ -145,7 +152,7 @@ def acompanhar(args, info: dict, fonte_teste: Path | None = None):
                 C.log(f"  analisando {C.hms(feito)} → {C.hms(total)} ({len(msgs)} msgs no chat)")
                 try:
                     feito = analisar_bloco(args, janela, feito, t0, msgs, ocupado, pasta, info, relatorio,
-                                           final=fim_live)
+                                           final=fim_live, offset=offset)
                 except Exception as e:
                     C.log(f"  aviso: falha ao analisar o bloco ({e})")
                     feito = total
@@ -173,6 +180,8 @@ def main():
     ap.add_argument("--cortes-por-bloco", type=int, default=1)
     ap.add_argument("--esperar", type=float, default=3, help="minutos entre checagens quando offline")
     ap.add_argument("--manter-gravacao", action="store_true", help="não apaga os pedaços gravados no final")
+    ap.add_argument("--sem-passado", action="store_true",
+                    help="não corta o que já tinha passado da live antes do comando")
     ap.add_argument("--uma-vez", action="store_true", help="sai quando a live acabar (não espera a próxima)")
     ap.add_argument("--fonte-teste", type=Path, help=argparse_oculto())
     args = C.preparar_args(ap.parse_args())

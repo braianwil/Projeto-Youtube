@@ -324,7 +324,7 @@ def link_momento(info: dict, url: str, seg: int) -> str:
 
 # ------------------------------------------------------------------ principal
 def processar(args, pasta: Path, titulo: str, info: dict, audio: Path, chat: Path | None,
-              video_local: Path | None, url: str | None) -> dict:
+              video_local: Path | None, url: str | None, baixar=None) -> dict:
     duracao = int(info.get("duration") or 0)
     if not duracao:
         duracao = int(float(subprocess.check_output(
@@ -361,7 +361,7 @@ def processar(args, pasta: Path, titulo: str, info: dict, audio: Path, chat: Pat
         if video_local:
             t.update(renderizar(video_local, t["inicio"], dur, destino, args, pico_rel))
         else:
-            bruto = baixar_trecho(url, t["inicio"], t["fim"], pasta / f"trecho_{i:02d}")
+            bruto = (baixar or baixar_trecho)(url, t["inicio"], t["fim"], pasta / f"trecho_{i:02d}")
             t.update(renderizar(bruto, 0, dur, destino, args, pico_rel))
             bruto.unlink(missing_ok=True)
         if t["gancho"]:
