@@ -47,6 +47,14 @@ Objetivo: cortes **transformados de verdade**, com crédito ao criador, para pas
 - `nota_global` (0–100, absoluta, `cortador.nota_global`): comparável entre vídeos e canais; é a nota a
   mostrar em destaque no app. `nota` é relativa ao próprio vídeo e só serve para ordenar dentro dele.
 
+## Regra de busca: vídeos MAIS RECENTES e MAIS PROMISSORES
+Sempre que buscar vídeos sobre um tema (GTA 6 por padrão), priorizar:
+1. **Recentes:** busca por data (`ytsearchdate`); assunto quente rende mais views no corte.
+2. **Promissores:** entre os recentes, os que mais estão sendo assistidos (views ajustadas pela idade,
+   `cortador.buscar_videos` → campo `promissor`). Lives e vídeos longos (≥ 8 min) com chat/reação forte.
+3. **Seguros:** só canais de `cortes/permissoes.txt`.
+Depois de cortar, destacar os cortes com maior `nota_global` como os primeiros a postar.
+
 ## Comando "buscar vídeos no youtube"
 Quando o usuário pedir para **buscar vídeos no YouTube** (ex.: sobre GTA 6) e cortar, a ação é
 `cortador.py --buscar "<tema>"` (yt-dlp `ytsearchdate`, mais recentes primeiro).

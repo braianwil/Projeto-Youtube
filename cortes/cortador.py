@@ -327,12 +327,19 @@ def buscar_videos(termo: str, quantos: int, args) -> list[dict]:
                 f"     → python cortes\\aovivo.py \"{e.get('url')}\" --vertical --legenda")
             continue
         videos.append({"id": e["id"], "url": e.get("url") or f"https://www.youtube.com/watch?v={e['id']}",
-                       "titulo": e.get("title"), "canal": canal})
+                       "titulo": e.get("title"), "canal": canal, "views": e.get("view_count") or 0,
+                       "recencia": len(videos)})
     if ignorados:
         top = ", ".join(f"{c} ({n})" for c, n in sorted(ignorados.items(), key=lambda x: -x[1])[:8])
         log(f"  ⚠ ignorados por não estarem em cortes/permissoes.txt: {top}\n"
             "    Adicione os que liberam cortes, ou use --qualquer-canal (risco de strike).")
-    log(f"  {len(videos)} vídeo(s) de canais liberados encontrados")
+    # promissores: entre os recentes, os que mais estão sendo assistidos (views ajustadas pela idade)
+    for v in videos:
+        v["promissor"] = np.log10(1 + v["views"]) - 0.02 * v["recencia"]
+    videos.sort(key=lambda v: -v["promissor"])
+    log(f"  {len(videos)} vídeo(s) de canais liberados encontrados (ordem: mais promissores primeiro)")
+    for v in videos[: args.max_videos]:
+        log(f"   • {v['titulo']} — {v['canal']} ({v['views']:,} views)".replace(",", "."))
     return videos
 
 
