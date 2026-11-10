@@ -5,3 +5,4 @@
   Se uma função "inteligente" for proposta, preferir heurística local; IA paga só se o usuário pedir explicitamente.
 - Ao trabalhar neste repo, ser econômico: respostas curtas, ler só o trecho necessário dos arquivos.
 - Idioma: português (BR).
+- Regras de edição/segurança do canal de cortes: skill `.claude/skills/clipador/SKILL.md` (seguir sempre).

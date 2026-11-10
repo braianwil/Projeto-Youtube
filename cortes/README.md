@@ -23,6 +23,19 @@ Você passa o link do perfil no **YouTube, Twitch ou Kick** e o script "assiste"
 
 Quando um sinal não existe ou a plataforma bloqueia o acesso, os pesos dos outros sinais são redistribuídos e o corte continua. O pico do momento fica a cerca de 65% do corte, então há contexto antes e reação depois.
 
+## Regras anti-punição (aplicadas automaticamente)
+
+Tudo isso está na skill `.claude/skills/clipador/SKILL.md`.
+
+- **Sem partes mortas:** remove pausas e silêncios, sem passar do mínimo da plataforma. Desligue com `--sem-cortar-silencio`.
+- **Zoom na ênfase:** zoom suave de 12% nos gritos, risadas e punchlines. Desligue com `--sem-zoom`.
+- **Crédito na tela:** o `@canal` aparece o vídeo todo. Use `--credito "@seuTexto"` para trocar ou `--credito nenhum` para tirar.
+- **Pergunta final** nos 3s finais. Troque com `--pergunta "..."` ou desligue com `--pergunta nenhum`.
+- **`corte_XX.txt`:** descrição pronta para colar, com título, créditos, link do vídeo completo e hashtags.
+- **`cortes/permissoes.txt`:** lista dos canais que liberam cortes. O cortador avisa quando o canal não está na lista.
+- **Faça manualmente:** grave uma intro de 3–5s com a sua voz contextualizando o momento. É o que mais transforma o vídeo.
+- **Não fazemos:** mudar o tom do áudio ou usar música e equalização para enganar o Content ID. Isso viola as regras do YouTube e pode encerrar o canal.
+
 ## Edição automática (100% local, sem custo de IA)
 
 Inspirada no Autoclipper, mas sem usar nenhuma API paga. Tudo roda no seu PC.

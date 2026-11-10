@@ -179,11 +179,24 @@ def calcular_nota(sinais: dict[str, np.ndarray | None], pesos: dict[str, float],
 
 
 # -------------------------------------------------------------------- cortes
-def renderizar(origem: Path, inicio: float, dur: float, destino: Path, args, pico_rel: float) -> dict:
-    """Corta, enquadra, legenda e escreve o gancho. Retorna o que foi feito (vai pro relatório)."""
+def renderizar(origem: Path, inicio: float, dur: float, destino: Path, args, pico_rel: float,
+               meta: dict | None = None) -> dict:
+    """Corta, tira pausas, enquadra, dá zoom na ênfase, legenda, gancho, crédito e pergunta final."""
+    meta = meta or {}
     bruto = destino.with_suffix(".bruto.mp4")
     ffmpeg("-ss", str(inicio), "-i", str(origem), "-t", str(dur), "-c:v", "libx264",
            "-preset", "veryfast", "-crf", "18", "-c:a", "aac", str(bruto))
+    removido = 0.0
+    if not args.sem_cortar_silencio:  # edição dinâmica: sem partes mortas
+        try:
+            enxuto = destino.with_suffix(".enxuto.mp4")
+            novo, pico_rel, removido = edicao.cortar_silencios(bruto, enxuto, pico_rel, args.dmin)
+            if novo != bruto:
+                bruto.unlink(missing_ok=True)
+                bruto = novo
+                dur -= removido
+        except Exception as e:
+            log(f"   aviso: corte de pausas falhou ({e})")
     precisa_texto = args.legenda or args.gancho == "auto"
     try:
         palavras = (edicao.transcrever(bruto, args.modelo_whisper, args.idiomas_legenda.split(","))
@@ -200,17 +213,40 @@ def renderizar(origem: Path, inicio: float, dur: float, destino: Path, args, pic
     if lay["tipo"] in ("rosto", "facecam") and "cx" not in lay:
         lay = {"tipo": "blur", "W": lay["W"], "H": lay["H"]}  # forçado mas sem rosto detectado
     filtro = edicao.filtro_layout(lay, args.vertical)
-    if gancho or (args.legenda and palavras):
-        ass = destino.with_suffix(".ass")
-        edicao.gerar_ass(ass, palavras if args.legenda else [], gancho, args.vertical, lay["tipo"])
-        filtro += f",ass={ass.name}"
+    enfase = [] if args.sem_zoom else edicao.momentos_enfase(bruto)
+    filtro += edicao.filtro_zoom(enfase, args.vertical)
+    credito = "" if args.credito == "nenhum" else (args.credito if args.credito != "auto" else
+                                                   (f"@{meta['canal']}" if meta.get("canal") else ""))
+    pergunta = "" if args.pergunta == "nenhum" else args.pergunta
+    ass = destino.with_suffix(".ass")
+    edicao.gerar_ass(ass, palavras if args.legenda else [], gancho, args.vertical, lay["tipo"],
+                     credito, pergunta, dur)
+    filtro += f",ass={ass.name}"
     ffmpeg("-i", bruto.name, "-filter_complex", filtro + "[v]", "-map", "[v]", "-map", "0:a?",
            "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-c:a", "aac", "-b:a", "160k",
            "-movflags", "+faststart", destino.name, cwd=destino.parent)
     bruto.unlink(missing_ok=True)
-    destino.with_suffix(".ass").unlink(missing_ok=True)
-    return {"layout": lay["tipo"], "gancho": gancho,
+    ass.unlink(missing_ok=True)
+    # descrição pronta para colar: créditos + link do vídeo completo
+    titulo = (gancho.strip("“”") or meta.get("titulo") or "").strip()
+    destino.with_suffix(".txt").write_text(
+        f"{titulo}\n\n"
+        f"🎥 Créditos: {credito or meta.get('canal', '')} — vídeo completo: {meta.get('link', '')}\n"
+        f"Corte com edição, legenda e comentários próprios. Todos os direitos ao criador original.\n\n"
+        f"#GTA6 #GTAVI #GTA #cortes\n", encoding="utf-8")
+    return {"layout": lay["tipo"], "gancho": gancho, "pausas_removidas_s": round(removido, 1),
+            "zoom_em": [round(t, 1) for t in enfase], "duracao_final": round(dur, 1),
             "fala": " ".join(w for _, _, w in palavras)[:500] if palavras else ""}
+
+
+def avisar_permissao(canal: str) -> None:
+    """Lembra de cortar só quem libera cortes (lista em cortes/permissoes.txt)."""
+    arq = Path(__file__).with_name("permissoes.txt")
+    liberados = {l.strip().lstrip("@").lower() for l in arq.read_text(encoding="utf-8").splitlines()
+                 if l.strip() and not l.startswith("#")} if arq.exists() else set()
+    if canal and canal.lstrip("@").lower() not in liberados:
+        log(f"  ⚠ '{canal}' não está em cortes/permissoes.txt. Confirme que o criador libera cortes"
+            " antes de postar (evita strike).")
 
 
 # ------------------------------------------------------------------ yt-dlp
@@ -351,6 +387,11 @@ def processar(args, pasta: Path, titulo: str, info: dict, audio: Path, chat: Pat
     if len(trechos) < args.cortes:
         log(f"  {len(trechos)} momento(s) bom(ns) sem repetir trecho (pedido: {args.cortes})")
 
+    canal = info.get("channel") or info.get("uploader") or info.get("uploader_id") or ""
+    meta = {"canal": re.sub(r"\s+", "", canal), "titulo": titulo,
+            "link": info.get("webpage_url") or url or ""}
+    if canal:
+        avisar_permissao(meta["canal"])
     for i, t in enumerate(trechos, 1):
         t["inicio"], t["fim"] = edicao.ajustar_bordas(
             t["inicio"], t["fim"], db_fino, args.dmin, args.dmax)  # cortar na pausa
@@ -359,10 +400,10 @@ def processar(args, pasta: Path, titulo: str, info: dict, audio: Path, chat: Pat
         destino = pasta / f"corte_{i:02d}.mp4"
         log(f"  corte {i}: {hms(t['inicio'])} → {hms(t['fim'])} (nota {t['nota']}/100)")
         if video_local:
-            t.update(renderizar(video_local, t["inicio"], dur, destino, args, pico_rel))
+            t.update(renderizar(video_local, t["inicio"], dur, destino, args, pico_rel, meta))
         else:
             bruto = (baixar or baixar_trecho)(url, t["inicio"], t["fim"], pasta / f"trecho_{i:02d}")
-            t.update(renderizar(bruto, 0, dur, destino, args, pico_rel))
+            t.update(renderizar(bruto, 0, dur, destino, args, pico_rel, meta))
             bruto.unlink(missing_ok=True)
         if t["gancho"]:
             log(f"    gancho: {t['gancho']}  | layout: {t['layout']}")
@@ -396,6 +437,11 @@ def criar_parser(descricao: str = "Gera cortes automáticos dos momentos de maio
                     help="vertical: auto detecta webcam/rosto; facecam = webcam em cima e jogo embaixo")
     ap.add_argument("--idiomas-legenda", default="pt",
                     help='idiomas que recebem legenda, ex: "pt" ou "pt,es" (inglês fica sem legenda)')
+    ap.add_argument("--sem-cortar-silencio", action="store_true", help="não remove pausas/partes mortas")
+    ap.add_argument("--sem-zoom", action="store_true", help="sem zoom nos momentos de ênfase")
+    ap.add_argument("--credito", default="auto", help='texto do crédito na tela: "auto" (@canal), "nenhum" ou seu texto')
+    ap.add_argument("--pergunta", default="E VOCÊ, O QUE FARIA? COMENTA!",
+                    help='pergunta nos 3s finais ("nenhum" desliga)')
     ap.add_argument("--modelo-whisper", default="small", help="tiny/base/small/medium (maior = melhor e mais lento)")
     ap.add_argument("--atraso-chat", type=int, default=6, help="segundos que o chat demora pra reagir")
     ap.add_argument("--ignorar-inicio", type=int, default=60, help="pula a intro/espera da live")

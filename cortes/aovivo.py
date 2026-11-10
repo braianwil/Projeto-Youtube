@@ -104,7 +104,10 @@ def analisar_bloco(args, segs, novo_desde: float, t0: float, msgs: list, ocupado
         destino = pasta.parent / f"corte_{nome}.mp4"
         t["nota"] = int(round(t["nota"] * 100))
         C.log(f"  ✂ corte em {C.hms(abs_ini + offset)} da live (nota {t['nota']}/100)")
-        t.update(C.renderizar(bloco, t["inicio"], t["fim"] - t["inicio"], destino, args, t["pico"] - t["inicio"]))
+        meta = {"canal": (info.get("channel") or info.get("uploader") or "").replace(" ", ""),
+                "titulo": info.get("title"), "link": info.get("webpage_url") or ""}
+        t.update(C.renderizar(bloco, t["inicio"], t["fim"] - t["inicio"], destino, args, t["pico"] - t["inicio"],
+                              meta))
         t.update({"arquivo": destino.name, "minuto_da_live": C.hms(abs_ini + offset),
                   "inicio": round(abs_ini, 1), "fim": round(base + t["fim"], 1), "pico": base + t["pico"]})
         ocupado.append((t["inicio"], t["fim"]))
@@ -125,6 +128,7 @@ def acompanhar(args, info: dict, fonte_teste: Path | None = None):
     pasta = pasta_live / "gravacao"
     pasta.mkdir(parents=True, exist_ok=True)
     C.log(f"🔴 AO VIVO: {info.get('title')}\n  cortes em: {pasta_live}")
+    C.avisar_permissao(canal)
 
     msgs, parar = [], threading.Event()
     if not fonte_teste:

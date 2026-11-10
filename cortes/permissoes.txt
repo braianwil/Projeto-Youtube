@@ -1,0 +1,3 @@
+# Canais que LIBERAM cortes (um por linha, com ou sem @).
+# Só coloque aqui quem tem regra pública de liberação ou autorizou você (guarde o print).
+# O cortador avisa quando o canal não está nesta lista.
