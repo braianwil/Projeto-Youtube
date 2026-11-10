@@ -250,3 +250,123 @@ def coletar_extras(url: str, info: dict, duracao: int, arquivo_chat_yt: Path | N
         except Exception as e:
             log(f"  aviso: não consegui pegar {nome} da {p} ({e.__class__.__name__}: {e})")
     return chat, clipes
+
+
+# ------------------------------------------------------------------ chat AO VIVO
+# Cada função roda numa thread e acrescenta (horário_unix, texto, peso_extra) em `msgs`
+# até `parar` ser acionado. Tudo gratuito: IRC anônimo da Twitch, websocket público da Kick
+# e o leitor de chat do próprio yt-dlp para o YouTube.
+def _texto_yt(acao: dict) -> tuple[str, float] | None:
+    item = acao.get("addChatItemAction", {}).get("item", {})
+    r = item.get("liveChatTextMessageRenderer") or item.get("liveChatPaidMessageRenderer")
+    if not r:
+        return None
+    texto = "".join(run.get("text", "") or run.get("emoji", {}).get("shortcuts", [""])[0]
+                    for run in r.get("message", {}).get("runs", []))
+    return texto, 3.0 if "liveChatPaidMessageRenderer" in item else 0.0
+
+
+def _ao_vivo_youtube(info, msgs, parar, pasta: Path, log):
+    import subprocess
+    import sys
+    import time
+    arq = pasta / "chat.live_chat.json"
+    proc = subprocess.Popen([sys.executable, "-m", "yt_dlp", "-q", "--no-warnings", "--skip-download",
+                             "--write-subs", "--sub-langs", "live_chat", "-o", str(pasta / "chat"),
+                             info["webpage_url"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    pos = 0
+    try:
+        while not parar.is_set() and proc.poll() is None:
+            time.sleep(1)
+            if not arq.exists():
+                continue
+            with open(arq, encoding="utf-8") as f:
+                f.seek(pos)
+                for linha in f:
+                    if not linha.endswith("\n"):
+                        break
+                    pos += len(linha.encode("utf-8"))
+                    try:
+                        acoes = json.loads(linha).get("replayChatItemAction", {}).get("actions", [])
+                    except json.JSONDecodeError:
+                        continue
+                    for a in acoes:
+                        r = _texto_yt(a)
+                        if r:
+                            msgs.append((time.time(), *r))
+    finally:
+        proc.terminate()
+
+
+def _ao_vivo_twitch(info, msgs, parar, pasta, log):
+    import random
+    import socket
+    import time
+    canal = (info.get("uploader_id") or info.get("channel") or "").lower()
+    while not parar.is_set():
+        try:
+            s = socket.create_connection(("irc.chat.twitch.tv", 6667), timeout=5)
+            s.sendall(f"NICK justinfan{random.randint(10000, 99999)}\r\nJOIN #{canal}\r\n".encode())
+            buf = b""
+            while not parar.is_set():
+                try:
+                    dados = s.recv(8192)
+                except socket.timeout:
+                    continue
+                if not dados:
+                    break
+                buf += dados
+                *linhas, buf = buf.split(b"\r\n")
+                for l in linhas:
+                    l = l.decode("utf-8", "ignore")
+                    if l.startswith("PING"):
+                        s.sendall(b"PONG :tmi.twitch.tv\r\n")
+                    elif " PRIVMSG " in l:
+                        msgs.append((time.time(), l.split(" PRIVMSG ", 1)[1].split(" :", 1)[-1], 0.0))
+            s.close()
+        except OSError as e:
+            log(f"  aviso: chat da Twitch caiu ({e}); reconectando…")
+            time.sleep(5)
+
+
+def _ao_vivo_kick(info, msgs, parar, pasta, log):
+    import time
+    from websockets.sync.client import connect
+    slug = (info.get("uploader_id") or re.search(r"kick\.com/([\w-]+)", info.get("webpage_url", "")).group(1)).lower()
+    sala = http_json(f"https://kick.com/api/v2/channels/{slug}")["chatroom"]["id"]
+    url = "wss://ws-us2.pusher.com/app/32cbd69e4b950bf97679?protocol=7&client=js&version=8.4.0&flash=false"
+    while not parar.is_set():
+        try:
+            with connect(url, open_timeout=10) as ws:
+                ws.send(json.dumps({"event": "pusher:subscribe",
+                                    "data": {"auth": "", "channel": f"chatrooms.{sala}.v2"}}))
+                while not parar.is_set():
+                    try:
+                        ev = json.loads(ws.recv(timeout=5))
+                    except TimeoutError:
+                        continue
+                    if ev.get("event") == "pusher:ping":
+                        ws.send(json.dumps({"event": "pusher:pong", "data": {}}))
+                    elif "ChatMessageEvent" in ev.get("event", ""):
+                        d = json.loads(ev["data"])
+                        msgs.append((time.time(), d.get("content") or "", 0.0))
+        except Exception as e:
+            log(f"  aviso: chat da Kick caiu ({e.__class__.__name__}); reconectando…")
+            time.sleep(5)
+
+
+def iniciar_chat_ao_vivo(info: dict, msgs: list, parar, pasta: Path, log=print):
+    """Começa a ler o chat da live numa thread (não trava a gravação)."""
+    import threading
+    fn = {"youtube": _ao_vivo_youtube, "twitch": _ao_vivo_twitch, "kick": _ao_vivo_kick}[
+        plataforma(info.get("webpage_url") or "")]
+
+    def rodar():
+        try:
+            fn(info, msgs, parar, pasta, log)
+        except Exception as e:
+            log(f"  aviso: sem chat ao vivo ({e.__class__.__name__}: {e}); seguindo só com o áudio")
+
+    t = threading.Thread(target=rodar, daemon=True)
+    t.start()
+    return t

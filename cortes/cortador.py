@@ -139,11 +139,13 @@ def sinal_clipes(clipes: list, duracao: int) -> np.ndarray | None:
 
 
 # --------------------------------------------------------------------- seleção
-def escolher_trechos(nota: np.ndarray, n: int, dur: int, ignorar_inicio: int, folga: int = 8):
+def escolher_trechos(nota: np.ndarray, n: int, dur: int, ignorar_inicio: int, folga: int = 8,
+                     ocupado: list | None = None):
     """Melhores trechos SEM sobreposição (com folga para o ajuste na pausa) e sem cortes fracos."""
     nota = nota.copy()
     nota[:ignorar_inicio] = 0
-    trechos, ocupado, melhor = [], [], None
+    trechos, melhor = [], None
+    ocupado = list(ocupado or [])  # trechos já cortados antes (modo ao vivo)
     for _ in range(len(nota)):
         if len(trechos) >= n:
             break
@@ -373,8 +375,8 @@ def processar(args, pasta: Path, titulo: str, info: dict, audio: Path, chat: Pat
     return relatorio
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Gera cortes automáticos dos momentos de maior engajamento.")
+def criar_parser(descricao: str = "Gera cortes automáticos dos momentos de maior engajamento."):
+    ap = argparse.ArgumentParser(description=descricao)
     ap.add_argument("perfil", nargs="?", help="link do canal/perfil ou de um vídeo/live específico")
     ap.add_argument("--arquivo", type=Path, help="usar vídeo já baixado (sem internet)")
     ap.add_argument("--chat", type=Path, help="chat .live_chat.json para usar com --arquivo")
@@ -398,14 +400,22 @@ def main():
     ap.add_argument("--saida", type=Path, default=Path("saida"))
     ap.add_argument("--reprocessar", action="store_true", help="ignora o histórico de vídeos já cortados")
     ap.add_argument("--manter-audio", action="store_true")
-    args = ap.parse_args()
+    return ap
+
+
+def preparar_args(args):
     args.dmin, alvo, args.dmax = PLATAFORMAS[args.plataforma]
     args.duracao = args.duracao or alvo
     args.dmin, args.dmax = min(args.dmin, args.duracao), max(args.dmax, args.duracao)
-
     if not shutil.which("ffmpeg"):
         sys.exit("ffmpeg não encontrado. Instale: https://ffmpeg.org/download.html")
     args.saida.mkdir(parents=True, exist_ok=True)
+    return args
+
+
+def main():
+    ap = criar_parser()
+    args = preparar_args(ap.parse_args())
 
     if args.arquivo:
         pasta = args.saida / date.today().isoformat() / "arquivos-locais" / nome_pasta(args.arquivo.stem)
