@@ -334,7 +334,7 @@ def processar(args, pasta: Path, titulo: str, info: dict, audio: Path, chat: Pat
         if url:
             t["link_momento"] = link_momento(info, url, int(t["inicio"]))
 
-    relatorio = {"titulo": titulo, "url": url, "duracao": duracao, "sinais": usados, "cortes": trechos}
+    relatorio = {"titulo": titulo, "id": info.get("id"), "url": url, "duracao": duracao, "sinais": usados, "cortes": trechos}
     (pasta / "relatorio.json").write_text(json.dumps(relatorio, indent=2, ensure_ascii=False), encoding="utf-8")
     if not args.manter_audio and not video_local:
         audio.unlink(missing_ok=True)
@@ -398,7 +398,7 @@ def main():
         log(f"\n▶ {v['titulo']}")
         # saida/<data>/<canal>/<vídeo>/
         pasta = (args.saida / date.today().isoformat() / nome_pasta(v["canal"], 40)
-                 / nome_pasta(f"{v['id']} {v['titulo'] or ''}"))
+                 / nome_pasta(v["titulo"] or v["id"]))
         pasta.mkdir(parents=True, exist_ok=True)
         try:
             info, audio, chat = baixar_analise(v["url"], pasta)
