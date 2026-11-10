@@ -49,8 +49,11 @@ Objetivo: cortes **transformados de verdade**, com crédito ao criador, para pas
 
 ## Comando "buscar vídeos no youtube"
 Quando o usuário pedir para **buscar vídeos no YouTube** (ex.: sobre GTA 6) e cortar, a ação é
-`cortador.py --buscar "<tema>"` (yt-dlp `ytsearchdate`, mais recentes primeiro). Esta sessão na nuvem
-não acessa o YouTube: entregar o comando pronto para o PowerShell do usuário:
+`cortador.py --buscar "<tema>"` (yt-dlp `ytsearchdate`, mais recentes primeiro).
+- **Sessão rodando no PC do usuário** (Claude app / Remote Control na pasta Projeto-Youtube): EXECUTAR
+  direto, sem pedir confirmação para a busca: `git pull` e depois o comando abaixo (sem o `cd`).
+  Mostrar no fim só o resumo: vídeos cortados, nota_global de cada corte e a pasta de saída.
+- **Sessão na nuvem** (sem acesso ao YouTube): entregar o comando pronto para o PowerShell:
 ```
 cd $HOME\Documents\Projeto-Youtube; git pull
 python cortes\cortador.py --buscar "GTA 6" --max-videos 3 --vertical --legenda
