@@ -23,6 +23,22 @@ Você passa o link do perfil no **YouTube, Twitch ou Kick** e o script "assiste"
 
 Quando um sinal não existe ou a plataforma bloqueia o acesso, os pesos dos outros sinais são redistribuídos e o corte continua. O pico do momento fica a cerca de 65% do corte, então há contexto antes e reação depois.
 
+## Edição automática (100% local, sem custo de IA)
+
+Inspirada no Autoclipper, mas sem usar nenhuma API paga. Tudo roda no seu PC.
+
+- **Corte na pausa:** início e fim vão para o silêncio mais próximo (até 6s antes ou depois), então a frase não fica cortada.
+- **Enquadramento 9:16 automático** (`--layout auto`):
+  - **facecam:** webcam pequena num canto (live de jogo) → webcam em cima e jogo embaixo.
+  - **rosto:** a pessoa ocupa a tela → corte vertical centrado no rosto.
+  - **blur:** sem rosto estável → vídeo inteiro com fundo desfocado.
+  - Rostos de NPC do GTA se mexem e são ignorados. Só a webcam parada conta.
+- **Legenda animada** (`--legenda`): até 3 palavras por vez, com a palavra falada em amarelo e um "pulo" de destaque.
+- **Gancho** (`--gancho auto`): a frase dita no momento do pico aparece em destaque nos 3 primeiros segundos. Você também pode escrever o seu, com `--gancho "ELE NÃO ESPERAVA ISSO"`, ou desligar com `--gancho nenhum`.
+- **Nota de 0 a 100** em cada corte, mais a fala transcrita no `relatorio.json`, para ajudar você a escrever o título.
+
+A transcrição usa o faster-whisper e só roda nos trechos escolhidos, nunca na live inteira. O modelo é escolhido com `--modelo-whisper` (padrão: `small`). O `tiny` é bem mais rápido, e o `medium` é mais preciso.
+
 Para economizar internet, ele baixa **só o áudio e o chat** para analisar e, depois, **só os trechos escolhidos** em vídeo. Uma live de 4h não é baixada inteira.
 
 ## Instalação (no seu PC)
@@ -32,8 +48,6 @@ Para economizar internet, ele baixa **só o áudio e o chat** para analisar e, d
    ```bash
    cd cortes
    pip install -r requirements.txt
-   # opcional, para legenda automática estilo Shorts:
-   pip install faster-whisper
    ```
 
 ## Uso
@@ -42,7 +56,7 @@ Para economizar internet, ele baixa **só o áudio e o chat** para analisar e, d
 # 3 vídeos/lives mais recentes do canal com "GTA" no título, 5 cortes verticais de 45s cada
 python cortador.py "https://www.youtube.com/@CANAL" --filtro "gta" --vertical
 
-# com legenda, 8 cortes de 60s
+# o mais completo: legenda animada + gancho + layout webcam/jogo, 8 cortes de 60s
 python cortador.py "https://www.youtube.com/@CANAL" --filtro "gta ?(6|vi)" --cortes 8 --duracao 60 --vertical --legenda
 
 # um vídeo ou live específico

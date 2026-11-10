@@ -1,3 +1,5 @@
 yt-dlp[default,curl-cffi]>=2025.1.1
 numpy>=1.26
 curl_cffi>=0.7
+opencv-python-headless>=4.8,<5
+faster-whisper>=1.0
