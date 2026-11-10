@@ -323,9 +323,16 @@ def ranquear_promissores(videos: list[dict], args) -> list[dict]:
         if not ts:
             continue
         horas = max(0.5, (agora - ts) / 3600)
-        if horas > args.max_idade_horas:
+        if args.max_idade_horas and horas > args.max_idade_horas:
             continue
         vph = views / horas  # velocidade média desde a postagem
+        # quanto mais antigo, mais views precisa (penalidade suavizada pela idade)
+        alcance = np.log10(1 + views / horas ** 0.7)
+        # joia escondida: público engajado e/ou vídeo acima do tamanho do canal
+        likes, coments = d.get("like_count") or 0, d.get("comment_count") or 0
+        subs = d.get("channel_follower_count") or 0
+        engaj = (likes + 2 * coments) / views if views >= 50 else 0.0  # ~4% é o normal
+        acima_canal = views / (subs + 100) if subs else 0.0
         tendencia, acel = "novo", 1.0
         anteriores = hist.get(v["id"], [])
         if anteriores:
@@ -337,26 +344,42 @@ def ranquear_promissores(videos: list[dict], args) -> list[dict]:
                 tendencia = "↑ acelerando" if acel > 1.2 else ("↓ esfriando" if acel < 0.6 else "→ estável")
         hist.setdefault(v["id"], []).append([agora, views])
         hist[v["id"]] = hist[v["id"]][-10:]
+        joia = views < 100_000 and (engaj >= 0.06 or acima_canal >= 1.0)
         v.update({"views": views, "horas": round(horas, 1), "views_por_hora": int(vph), "tendencia": tendencia,
-                  "promissor": round(np.log10(1 + vph) + 0.5 * np.log2(min(4, max(0.25, acel))), 3)})
+                  "engajamento": round(engaj * 100, 1), "inscritos": subs, "joia": joia,
+                  "promissor": float(round(alcance
+                                     + min(2.0, engaj / 0.04)                      # engajamento (até +2)
+                                     + 0.8 * min(1.5, np.log10(1 + acima_canal))  # acima do canal (até +1,2)
+                                     + 0.5 * np.log2(min(4, max(0.25, acel))), 3))})  # crescimento (±1)
         escolhidos.append(v)
     arq.parent.mkdir(parents=True, exist_ok=True)
     arq.write_text(json.dumps(hist), encoding="utf-8")
     escolhidos.sort(key=lambda v: -v["promissor"])
-    log(f"  {len(escolhidos)} vídeo(s) promissores (postados nas últimas {args.max_idade_horas:g}h):")
+    log(f"  {len(escolhidos)} vídeo(s) avaliados; mais promissores:")
     for v in escolhidos[: args.max_videos]:
         idade = f"{v['horas']:.0f}h" if v["horas"] < 48 else f"{v['horas'] / 24:.0f} dias"
-        log(f"   • {v['titulo']} — {v['canal']} | postado há {idade} | {v['views']:,} views | "
-            f"{v['views_por_hora']:,}/h | {v['tendencia']}".replace(",", "."))
+        log(f"   • {'💎 ' if v['joia'] else ''}{v['titulo']} — {v['canal']} | postado há {idade} | "
+            f"{v['views']:,} views | {v['views_por_hora']:,}/h | engaj. {v['engajamento']}% | "
+            f"{v['tendencia']}".replace(",", "."))
     return escolhidos
 
 
 def buscar_videos(termo: str, quantos: int, args) -> list[dict]:
     """Busca no YouTube os vídeos/lives mais recentes sobre o tema (ex.: "GTA 6").
     Por segurança, só aceita canais de cortes/permissoes.txt (a menos que --qualquer-canal)."""
-    log(f"Buscando no YouTube: \"{termo}\" (mais recentes)…")
-    with ydl({"extract_flat": True, "logger": _Mudo()}) as y:
-        info = y.extract_info(f"ytsearchdate{quantos}:{termo}", download=False)
+    log(f"Buscando no YouTube: \"{termo}\" (recentes + relevantes)…")
+    entradas, vistos = [], set()
+    for prefixo in ("ytsearchdate", "ytsearch"):  # mais recentes + mais relevantes (inclui antigos fortes)
+        try:
+            with ydl({"extract_flat": True, "logger": _Mudo()}) as y:
+                r = y.extract_info(f"{prefixo}{quantos}:{termo}", download=False)
+        except Exception:
+            continue
+        for e in r.get("entries") or []:
+            if e and e.get("id") not in vistos:
+                vistos.add(e.get("id"))
+                entradas.append(e)
+    info = {"entries": entradas}
     liberados = canais_liberados()
     videos, ignorados = [], {}
     for e in info.get("entries") or []:
@@ -539,9 +562,9 @@ def criar_parser(descricao: str = "Gera cortes automáticos dos momentos de maio
     ap.add_argument("--chat", type=Path, help="chat .live_chat.json para usar com --arquivo")
     ap.add_argument("--buscar", metavar="TERMO",
                     help='busca no YouTube os vídeos mais recentes sobre o tema, ex: --buscar "GTA 6"')
-    ap.add_argument("--max-idade-horas", type=float, default=168,
-                    help="na busca, só vídeos postados nas últimas N horas (padrão 168 = 7 dias)")
-    ap.add_argument("--candidatos", type=int, default=15, help="na busca, quantos vídeos analisar a fundo")
+    ap.add_argument("--max-idade-horas", type=float, default=0,
+                    help="na busca, limite de idade em horas (padrão 0 = sem limite; antigos precisam de mais views)")
+    ap.add_argument("--candidatos", type=int, default=25, help="na busca, quantos vídeos analisar a fundo")
     ap.add_argument("--min-minutos", type=float, default=8,
                     help="na busca, ignora vídeos mais curtos que isso (padrão 8 min)")
     ap.add_argument("--qualquer-canal", action="store_true",
