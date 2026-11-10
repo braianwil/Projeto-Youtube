@@ -139,20 +139,28 @@ def sinal_clipes(clipes: list, duracao: int) -> np.ndarray | None:
 
 
 # --------------------------------------------------------------------- seleção
-def escolher_trechos(nota: np.ndarray, n: int, dur: int, ignorar_inicio: int):
+def escolher_trechos(nota: np.ndarray, n: int, dur: int, ignorar_inicio: int, folga: int = 8):
+    """Melhores trechos SEM sobreposição (com folga para o ajuste na pausa) e sem cortes fracos."""
     nota = nota.copy()
     nota[:ignorar_inicio] = 0
-    trechos = []
-    while len(trechos) < n:
+    trechos, ocupado, melhor = [], [], None
+    for _ in range(len(nota)):
+        if len(trechos) >= n:
+            break
         pico = int(np.argmax(nota))
-        if nota[pico] <= 0.05:
+        valor = float(nota[pico])
+        melhor = melhor or valor
+        if valor <= 0.05 or valor < 0.35 * melhor:  # fraco demais perto do melhor momento
             break
         # o pico fica ~65% dentro do corte: tem contexto antes e reação depois
-        inicio = max(0, pico - int(dur * 0.65))
-        fim = min(len(nota), inicio + dur)
+        fim = min(len(nota), max(0, pico - int(dur * 0.65)) + dur)
         inicio = max(0, fim - dur)
-        trechos.append({"inicio": inicio, "fim": fim, "pico": pico, "nota": round(float(nota[pico]), 3)})
-        nota[max(0, inicio - dur // 2):fim + dur // 2] = 0
+        if any(inicio < b + folga and fim + folga > a for a, b in ocupado):
+            nota[max(0, pico - 2):pico + 3] = 0  # cairia em cima de outro corte
+            continue
+        trechos.append({"inicio": inicio, "fim": fim, "pico": pico, "nota": round(valor, 3)})
+        ocupado.append((inicio, fim))
+        nota[inicio:fim] = 0
     return sorted(trechos, key=lambda t: -t["nota"])
 
 
@@ -243,7 +251,8 @@ def listar_videos(perfil: str, limite: int, filtro: str | None) -> list[dict]:
             if filtro and not re.search(filtro, e.get("title") or "", re.IGNORECASE):
                 continue
             if e.get("live_status") in ("is_live", "is_upcoming"):
-                continue  # live ainda rolando: processa quando virar VOD
+                log(f"  pulando (ao vivo/agendado; corto quando virar vídeo): {e.get('title')}")
+                continue
             vistos.add(e["id"])
             canal = (e.get("channel") or e.get("uploader") or info.get("channel") or info.get("uploader")
                      or nome_do_perfil(perfil))
@@ -333,7 +342,10 @@ def processar(args, pasta: Path, titulo: str, info: dict, audio: Path, chat: Pat
     log(f"  sinais usados: {', '.join(usados)}")
     pesos = {"heatmap": 0.5, "clipes": 0.45, "chat": 0.35, "audio": 0.15}
     nota = calcular_nota(sinais, pesos, max(5, args.duracao // 3))
-    trechos = escolher_trechos(nota, args.cortes, args.duracao, args.ignorar_inicio)
+    ignorar = min(args.ignorar_inicio, int(duracao * 0.05))  # vídeo curto não tem "intro de live"
+    trechos = escolher_trechos(nota, args.cortes, args.duracao, ignorar)
+    if len(trechos) < args.cortes:
+        log(f"  {len(trechos)} momento(s) bom(ns) sem repetir trecho (pedido: {args.cortes})")
 
     for i, t in enumerate(trechos, 1):
         t["inicio"], t["fim"] = edicao.ajustar_bordas(
@@ -413,7 +425,8 @@ def main():
     videos = listar_videos(args.perfil, args.max_videos * 4, args.filtro)
     novos = [v for v in videos if args.reprocessar or v["id"] not in historico][: args.max_videos]
     if not novos:
-        log("Nenhum vídeo novo para cortar.")
+        log("Nenhum vídeo novo para cortar." + ("" if args.reprocessar else
+            " (use --reprocessar para cortar de novo os já feitos)"))
         return
 
     for v in novos:
